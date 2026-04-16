@@ -84,7 +84,7 @@ def transcribe_audio_bytes(self, user_id: int, job_id: str, audio_bytes: bytes, 
 
 
 @app.task(bind=True, base=TranscriptionTask, name="src.tasks.transcription_tasks.transcribe_audio")
-def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode: str = "recap"):
+def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode: str = "recap", correlation_id: str = None):
     """Transcribe audio using Deepgram with automatic retry on failure.
     
     Args:
@@ -92,11 +92,13 @@ def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode
         job_id: Job tracking ID
         audio_file_path: Path to audio file
         mode: 'live' (diarized) or 'recap' (entity extraction)
+        correlation_id: Request correlation ID for tracing
         
     Returns:
         Dict with extracted_interests and metadata
     """
-    logger.info(f"[job_id={job_id}] Starting transcription (mode={mode})")
+    corr_id = correlation_id or job_id
+    logger.info(f"[{corr_id}] [job_id={job_id}] Starting transcription (mode={mode})")
     self.update_state(state="TRANSCRIPTION", meta={"progress": "Transcribing audio with Deepgram..."})
     
     try:
@@ -111,25 +113,26 @@ def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode
             entities = deepgram_integration.extract_entities_from_transcript(transcript_data)
             extracted_interests = " ".join(entities)
 
-        logger.info(f"[job_id={job_id}] Transcription complete: {extracted_interests[:100]}...")
+        logger.info(f"[{corr_id}] [job_id={job_id}] Transcription complete: {extracted_interests[:100]}...")
 
         # Update recordings row in Supabase with transcript JSON and mark completed
         try:
             client = SupabaseManager.get_client()
             client.table("recordings").update({"transcript_json": transcript_data, "status": "completed"}).eq("job_id", job_id).eq("user_id", user_id).execute()
-            logger.info(f"[job_id={job_id}] Updated recordings row with transcript_json")
+            logger.info(f"[{corr_id}] [job_id={job_id}] Updated recordings row with transcript_json")
         except Exception as e:
-            logger.warning(f"[job_id={job_id}] Failed to update recordings row with transcript: {e}")
+            logger.warning(f"[{corr_id}] [job_id={job_id}] Failed to update recordings row with transcript: {e}")
 
         return {
             "user_id": user_id,
             "job_id": job_id,
             "extracted_interests": extracted_interests,
             "mode": mode,
+            "correlation_id": correlation_id,
         }
         
     except Exception as e:
-        logger.error(f"[job_id={job_id}] Transcription failed: {e}")
+        logger.error(f"[{corr_id}] [job_id={job_id}] Transcription failed: {e}")
         self.update_state(
             state="TRANSCRIPTION_FAILED",
             meta={"error": str(e)}
@@ -150,15 +153,16 @@ def embed_interests(self, transcription_result: dict):
         Dict with embedding vector and metadata
     """
     job_id = transcription_result.get("job_id")
+    correlation_id = transcription_result.get("correlation_id", job_id)
     extracted_interests = transcription_result.get("extracted_interests", "")
     
-    logger.info(f"[job_id={job_id}] Creating embedding from interests")
+    logger.info(f"[{correlation_id}] [job_id={job_id}] Creating embedding from interests")
     self.update_state(state="EMBEDDING", meta={"progress": "Creating semantic vector..."})
     
     try:
         embedding = deepgram_integration.get_interaction_embedding(extracted_interests)
         
-        logger.info(f"[job_id={job_id}] Embedding created ({len(embedding)} dims)")
+        logger.info(f"[{correlation_id}] [job_id={job_id}] Embedding created ({len(embedding)} dims)")
         
         return {
             **transcription_result,
@@ -167,7 +171,7 @@ def embed_interests(self, transcription_result: dict):
         }
         
     except Exception as e:
-        logger.error(f"[job_id={job_id}] Embedding failed: {e}")
+        logger.error(f"[{correlation_id}] [job_id={job_id}] Embedding failed: {e}")
         self.update_state(
             state="EMBEDDING_FAILED",
             meta={"error": str(e)}
@@ -187,10 +191,11 @@ def store_conversation(self, transcription_result: dict):
     """
     user_id = transcription_result.get("user_id")
     job_id = transcription_result.get("job_id")
+    correlation_id = transcription_result.get("correlation_id", job_id)
     extracted_interests = transcription_result.get("extracted_interests", "")
     mode = transcription_result.get("mode", "recap")
     
-    logger.info(f"[job_id={job_id}] Storing conversation")
+    logger.info(f"[{correlation_id}] [job_id={job_id}] Storing conversation")
     
     try:
         db = SessionLocal()
@@ -204,7 +209,7 @@ def store_conversation(self, transcription_result: dict):
         conversation_id = conversation.id
         db.close()
         
-        logger.info(f"[job_id={job_id}] Conversation stored (id={conversation_id})")
+        logger.info(f"[{correlation_id}] [job_id={job_id}] Conversation stored (id={conversation_id})")
         
         return {
             **transcription_result,
@@ -212,5 +217,5 @@ def store_conversation(self, transcription_result: dict):
         }
         
     except Exception as e:
-        logger.error(f"[job_id={job_id}] Failed to store conversation: {e}")
+        logger.error(f"[{correlation_id}] [job_id={job_id}] Failed to store conversation: {e}")
         raise

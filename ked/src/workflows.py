@@ -42,6 +42,7 @@ def start_interaction_workflow(
     job_id: str,
     audio_file_path: str,
     mode: str = "recap",
+    correlation_id: str = None,
 ) -> str:
     """Start the complete interaction processing workflow.
     
@@ -68,15 +69,19 @@ def start_interaction_workflow(
         job_id: Job tracking ID
         audio_file_path: Path to audio file
         mode: 'live' or 'recap'
+        correlation_id: Request correlation ID for tracing
         
     Returns:
         Task ID for monitoring
     """
-    logger.info(f"[job_id={job_id}] Starting interaction workflow (user_id={user_id})")
+    logger.info(
+        f"[job_id={job_id}] [{correlation_id}] Starting interaction workflow (user_id={user_id})"
+    )
     
     # Transcription chain: Get audio → embed → store
+    # Pass correlation_id to all tasks for distributed tracing
     transcription_chain = chain(
-        transcribe_audio.s(user_id, job_id, audio_file_path, mode),
+        transcribe_audio.s(user_id, job_id, audio_file_path, mode, correlation_id),
         embed_interests.s(),
         store_conversation.s(),
     )
@@ -85,18 +90,18 @@ def start_interaction_workflow(
     enrichment_chord = chord([
         # Scraping path: Extract names → Scrape LinkedIn → Fallback Twitter
         chain(
-            extract_name_context.s(),
-            scrape_linkedin.s(),
-            scrape_twitter.s(),
+            extract_name_context.s(correlation_id=correlation_id),
+            scrape_linkedin.s(correlation_id=correlation_id),
+            scrape_twitter.s(correlation_id=correlation_id),
         ),
         # PII scrubbing runs independently
-        scrub_pii.s(),
+        scrub_pii.s(correlation_id=correlation_id),
     ])
     
     # Synthesis tasks run on aggregated enrichment results
     synthesis_tasks = chord([
-        recursive_insight.s(),
-        draft_warm_outreach.s(),
+        recursive_insight.s(correlation_id=correlation_id),
+        draft_warm_outreach.s(correlation_id=correlation_id),
     ])
     
     # Complete workflow: Transcription → Enrichment (parallel) → Synthesis → Metrics

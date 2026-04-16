@@ -1,6 +1,6 @@
 import logging
 import json
-import google.generativeai as genai
+import google.genai as genai
 from sqlalchemy.orm import Session
 
 from ..models import UserPersona, InterestNode
@@ -9,7 +9,7 @@ from . import deepgram_integration, linkedin_scraper
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=settings.gemini_api_key)
+genai_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 def ingest_voice_pitch(user_id: int, audio_file_path: str, db: Session) -> list[dict]:

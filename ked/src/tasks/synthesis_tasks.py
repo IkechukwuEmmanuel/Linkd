@@ -6,6 +6,7 @@ These tasks create final insights and ensure data privacy compliance.
 import logging
 import re
 import json
+import google.genai
 from celery import Task
 from ..celery_app import app
 from ..config import settings
@@ -13,6 +14,9 @@ from ..db import SessionLocal
 from ..models import InteractionMetric
 
 logger = logging.getLogger(__name__)
+
+# Initialize Genai client
+genai_client = google.genai.Client(api_key=settings.gemini_api_key)
 
 
 class SynthesisTask(Task):
@@ -48,9 +52,6 @@ def recursive_insight(self, enrichment_result: dict):
     self.update_state(state="SYNTHESIS", meta={"progress": "Creating personalized insight..."})
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
-        
         # Build context from scraped data
         context_sections = []
         for profile in scraped_profiles:
@@ -74,10 +75,10 @@ Create a JSON response with:
 
 Return ONLY valid JSON."""
         
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=google.genai.types.GenerateContentConfig(
                 temperature=0.7,
                 max_output_tokens=500,
             ),
@@ -121,9 +122,6 @@ def draft_warm_outreach(self, synthesis_result: dict):
     self.update_state(state="OUTREACH", meta={"progress": "Drafting personalized message..."})
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
-        
         overlap_points = final_insight.get("overlap_points", [])
         
         prompt = f"""Draft a warm, 2-3 sentence outreach message for a professional connection.
@@ -139,10 +137,10 @@ Guidelines:
 
 Return a short message (max 150 words) that would work for LinkedIn or email."""
         
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=google.genai.types.GenerateContentConfig(
                 temperature=0.7,
                 max_output_tokens=300,
             ),
@@ -297,9 +295,7 @@ def triple_vector_synthesis(self, synthesis_result: dict):
     self.update_state(state="TRIPLE_VECTOR", meta={"progress": "Fusing data vectors..."})
     
     try:
-        import google.generativeai as genai
         import numpy as np
-        genai.configure(api_key=settings.gemini_api_key)
         
         # Vector 1: Transcript embedding (already have)
         if not transcript_embedding:
@@ -315,13 +311,18 @@ def triple_vector_synthesis(self, synthesis_result: dict):
                 professional_text += f" {profile.get('profile_text', '')}"
         
         if professional_text.strip():
-            # Get embedding for professional data
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            response = model.embed_content(professional_text[:1000])
-            vector_2 = np.array(response['embedding'][:1536])
-            # Pad if necessary
-            if len(vector_2) < 1536:
-                vector_2 = np.pad(vector_2, (0, 1536 - len(vector_2)))
+            # Get embedding for professional data using modern API
+            response = genai_client.models.embed_content(
+                model="models/text-embedding-004",
+                content=professional_text[:1000],
+            )
+            embedding_data = response.embedding
+            # Pad to 1536 dimensions
+            if len(embedding_data) < 1536:
+                embedding_data = embedding_data + [0.0] * (1536 - len(embedding_data))
+            else:
+                embedding_data = embedding_data[:1536]
+            vector_2 = np.array(embedding_data)
         else:
             logger.debug(f"[job_id={job_id}] No professional data for embedding")
             vector_2 = np.zeros(1536)
@@ -333,12 +334,18 @@ def triple_vector_synthesis(self, synthesis_result: dict):
                 personality_text += f" {profile.get('profile_text', '')}"
         
         if personality_text.strip():
-            # Get embedding for personality data
-            response = model.embed_content(personality_text[:1000])
-            vector_3 = np.array(response['embedding'][:1536])
-            # Pad if necessary
-            if len(vector_3) < 1536:
-                vector_3 = np.pad(vector_3, (0, 1536 - len(vector_3)))
+            # Get embedding for personality data using modern API
+            response = genai_client.models.embed_content(
+                model="models/text-embedding-004",
+                content=personality_text[:1000],
+            )
+            embedding_data = response.embedding
+            # Pad to 1536 dimensions
+            if len(embedding_data) < 1536:
+                embedding_data = embedding_data + [0.0] * (1536 - len(embedding_data))
+            else:
+                embedding_data = embedding_data[:1536]
+            vector_3 = np.array(embedding_data)
         else:
             logger.debug(f"[job_id={job_id}] No personality data for embedding")
             vector_3 = np.zeros(1536)
@@ -474,9 +481,6 @@ def draft_warm_outreach_v2(self, synthesis_result: dict):
     self.update_state(state="OUTREACH_V2", meta={"progress": "Adding social hooks..."})
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
-        
         overlap_points = final_insight.get("overlap_points", [])
         
         # Extract social hooks from scraped data

@@ -8,6 +8,7 @@ Routed to the 'enrichment' worker queue using Gevent.
 import logging
 import json
 import time
+import google.genai as genai
 from datetime import datetime, timedelta
 from celery import Task
 from ..celery_app import app
@@ -16,6 +17,9 @@ from ..config import settings
 from ..db import SessionLocal, redis_cache
 
 logger = logging.getLogger(__name__)
+
+# Initialize Genai client
+genai_client = genai.Client(api_key=settings.gemini_api_key)
 
 # Circuit breaker state: {ip_hash: {"blocked_until": timestamp, "reason": "CAPTCHA"}}
 CIRCUIT_BREAKER_STATE = {}
@@ -86,9 +90,6 @@ def extract_name_context(self, transcription_result: dict):
     self.update_state(state="NAME_EXTRACTION", meta={"progress": "Finding contact names..."})
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
-        
         prompt = f"""From this conversation transcript, identify any person names mentioned.
 For each person found, create a search query that includes:
 - Full name (if available)
@@ -102,10 +103,10 @@ Return JSON: {{"persons": [{{"name": "...", "search_query": "...", "confidence":
 
 Return ONLY valid JSON."""
         
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
                 temperature=0.5,
                 max_output_tokens=500,
             ),

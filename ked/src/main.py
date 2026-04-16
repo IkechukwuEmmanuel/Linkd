@@ -3,11 +3,12 @@ import uuid
 import signal
 import sys
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .routers import onboarding, interactions, feedback, jobs, async_interactions, uploads, ingest
 from . import db
@@ -21,8 +22,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Initialize rate limiter with custom key function
+def get_rate_limit_key(request: Request):
+    """Get rate limit key: prioritize user_id from JWT, fallback to IP."""
+    # Try to extract user_id from JWT token (if authenticated)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from .auth import verify_token
+            token = auth_header.replace("Bearer ", "")
+            user_id = verify_token(token)
+            return f"user:{user_id}"
+        except:
+            pass
+    
+    # Fallback to IP-based rate limiting
+    return f"ip:{get_remote_address(request)}"
+
+limiter = Limiter(key_func=get_rate_limit_key)
 
 
 @asynccontextmanager
@@ -43,6 +60,14 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logger.info("Shutting down Linkd backend...")
     try:
+        # Get pool stats before disposal
+        pool = db.engine.pool
+        logger.info(
+            f"✓ Database connection pool stats - "
+            f"Size: {pool.size()}, "
+            f"Checked out: {pool.checkedout()}"
+        )
+        
         db.engine.dispose()
         logger.info("✓ Database connection pool closed")
     except Exception as e:
@@ -60,16 +85,49 @@ app = FastAPI(
 # Add rate limiter to app
 app.state.limiter = limiter
 
-# Add CORS middleware
-if settings.cors_origins:
+# Add rate limit exception handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Handle rate limit exceeded."""
+    correlation_id = getattr(request.state, "correlation_id", "unknown")
+    logger.warning(f"[{correlation_id}] Rate limit exceeded: {exc.detail}")
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "error": "Rate limit exceeded",
+            "details": {
+                "correlation_id": correlation_id,
+                "message": exc.detail,
+            },
+        },
+    )
+
+# Add CORS middleware with production-ready configuration
+cors_origins = settings.get_cors_origins()
+
+if cors_origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["*"],
+        expose_headers=["X-Correlation-ID"],
+        max_age=3600,  # Cache preflight requests for 1 hour
     )
-    logger.info(f"CORS enabled for origins: {settings.cors_origins}")
+    logger.info(
+        f"CORS enabled for {len(cors_origins)} origin(s): "
+        f"{', '.join(cors_origins[:3])}{'...' if len(cors_origins) > 3 else ''}"
+    )
+else:
+    if settings.environment == "production":
+        logger.warning(
+            "WARNING: No CORS origins configured for production environment. "
+            "Set CORS_ORIGINS environment variable to enable CORS. "
+            "Format: CORS_ORIGINS=https://app.example.com,https://api.example.com"
+        )
+    else:
+        logger.info(f"CORS disabled (default for {settings.environment} environment)")
 
 
 # Middleware to attach correlation_id and request logging

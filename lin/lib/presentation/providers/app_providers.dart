@@ -143,6 +143,7 @@ enum RecordingMode { live, recap }
 
 class RecordingState {
   final bool isRecording;
+  final bool isPaused;
   final bool isProcessing;
   final Duration duration;
   final RecordingMode mode;
@@ -150,6 +151,7 @@ class RecordingState {
 
   RecordingState({
     this.isRecording = false,
+    this.isPaused = false,
     this.isProcessing = false,
     this.duration = Duration.zero,
     this.mode = RecordingMode.recap,
@@ -158,6 +160,7 @@ class RecordingState {
 
   RecordingState copyWith({
     bool? isRecording,
+    bool? isPaused,
     bool? isProcessing,
     Duration? duration,
     RecordingMode? mode,
@@ -165,6 +168,7 @@ class RecordingState {
   }) {
     return RecordingState(
       isRecording: isRecording ?? this.isRecording,
+      isPaused: isPaused ?? this.isPaused,
       isProcessing: isProcessing ?? this.isProcessing,
       duration: duration ?? this.duration,
       mode: mode ?? this.mode,

@@ -11,7 +11,9 @@ import logging
 import json
 import tempfile
 import os
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -67,6 +69,7 @@ class WorkflowStatusResponse(BaseModel):
 async def submit_interaction_async(
     file: UploadFile,
     mode: str = Form("recap"),
+    request: Request = None,
     user_id: int = Depends(get_current_user),
     db_session: Session = Depends(get_db),
 ) -> dict:
@@ -82,6 +85,7 @@ async def submit_interaction_async(
     Args:
         file: Audio file upload
         mode: 'live' (diarized, other speaker extraction) or 'recap' (entity extraction)
+        request: FastAPI request object (for correlation ID)
         user_id: Extracted from JWT token
         db_session: Database session
         
@@ -97,7 +101,8 @@ async def submit_interaction_async(
         ValidationError: If input is invalid
         ExternalServiceError: If workflow startup fails
     """
-    import uuid
+    # Get correlation ID from request context
+    correlation_id = getattr(request.state, "correlation_id", str(uuid.uuid4())) if request else None
     
     if mode not in ["live", "recap"]:
         raise ValidationError(f"Invalid mode: {mode}. Must be 'live' or 'recap'")
@@ -123,39 +128,49 @@ async def submit_interaction_async(
         # Upload to S3 with 24-hour expiration metadata
         s3_key = None
         try:
-            s3_key = storage.upload_audio_file(user_id, tmp_path, f"{job_id}.wav")
+            s3_key = await run_in_threadpool(
+                storage.upload_audio_file, user_id, tmp_path, f"{job_id}.wav"
+            )
             logger.info(f"[job_id={job_id}] Audio uploaded to S3: {s3_key}")
         except Exception as s3_error:
             logger.warning(f"[job_id={job_id}] S3 upload failed, using local storage: {s3_error}")
         
-        # Create Job tracking record
-        job = Job(
-            job_id=job_id,
-            user_id=user_id,
-            status="PENDING",
-            job_type="interaction",
-            input_data=json.dumps({
-                "mode": mode,
-                "audio_file": tmp_path,
-                "s3_key": s3_key,
-            }),
-            progress=0,
-        )
-        db_session.add(job)
-        db_session.commit()
+        # Create Job tracking record - wrap in threadpool for sync I/O
+        def create_job_record():
+            job = Job(
+                job_id=job_id,
+                user_id=user_id,
+                status="PENDING",
+                job_type="interaction",
+                input_data=json.dumps({
+                    "mode": mode,
+                    "audio_file": tmp_path,
+                    "s3_key": s3_key,
+                }),
+                progress=0,
+            )
+            db_session.add(job)
+            db_session.commit()
+            return job
+        
+        job = await run_in_threadpool(create_job_record)
         logger.info(f"[job_id={job_id}] Job record created")
         
-        # Start the distributed workflow
+        # Start the distributed workflow (with correlation ID for tracing)
         task_id = start_interaction_workflow(
             user_id=user_id,
             job_id=job_id,
             audio_file_path=tmp_path,
             mode=mode,
+            correlation_id=correlation_id,
         )
         
-        # Update job with Celery task ID
-        job.job_metadata = json.dumps({"celery_task_id": task_id})
-        db_session.commit()
+        # Update job with Celery task ID - wrap in threadpool for sync I/O
+        def update_job_with_task_id():
+            job.job_metadata = json.dumps({"celery_task_id": task_id})
+            db_session.commit()
+        
+        await run_in_threadpool(update_job_with_task_id)
         
         logger.info(f"[job_id={job_id}] Workflow started with task_id={task_id}")
         
@@ -169,15 +184,18 @@ async def submit_interaction_async(
     except Exception as e:
         logger.error(f"[job_id={job_id}] Failed to submit interaction: {e}")
         
-        # Update job as failed
-        try:
-            job = db_session.query(Job).filter(Job.job_id == job_id).first()
-            if job:
-                job.status = "FAILED"
-                job.error_message = str(e)
-                db_session.commit()
-        except Exception as db_error:
-            logger.warning(f"[job_id={job_id}] Could not update job record: {db_error}")
+        # Update job as failed - wrap in threadpool for sync I/O
+        def mark_job_failed():
+            try:
+                job_record = db_session.query(Job).filter(Job.job_id == job_id).first()
+                if job_record:
+                    job_record.status = "FAILED"
+                    job_record.error_message = str(e)
+                    db_session.commit()
+            except Exception as db_error:
+                logger.warning(f"[job_id={job_id}] Could not update job record: {db_error}")
+        
+        await run_in_threadpool(mark_job_failed)
         
         raise HTTPException(status_code=500, detail=f"Failed to submit interaction: {e}")
 
@@ -213,35 +231,39 @@ async def get_interaction_status(job_id: str, db_session: Session = Depends(get_
     logger.info(f"Status check for job_id={job_id}")
     
     try:
-        # Get job record
-        job = db_session.query(Job).filter(Job.job_id == job_id).first()
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-        
-        # Get Celery task ID
-        metadata = json.loads(job.job_metadata or "{}")
-        celery_task_id = metadata.get("celery_task_id")
-        
-        if not celery_task_id:
-            # Job not started yet
+        # Get job record - wrap in threadpool for sync I/O
+        def get_job_and_status():
+            # Get job record
+            job = db_session.query(Job).filter(Job.job_id == job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+            
+            # Get Celery task ID
+            metadata = json.loads(job.job_metadata or "{}")
+            celery_task_id = metadata.get("celery_task_id")
+            
+            if not celery_task_id:
+                # Job not started yet
+                return WorkflowStatusResponse(
+                    job_id=job_id,
+                    task_id="",
+                    state="PENDING",
+                    progress="Queued...",
+                )
+            
+            # Get workflow status from Celery
+            workflow_status = get_workflow_status(celery_task_id)
+            
             return WorkflowStatusResponse(
                 job_id=job_id,
-                task_id="",
-                state="PENDING",
-                progress="Queued...",
+                task_id=celery_task_id,
+                state=workflow_status["state"],
+                progress=workflow_status.get("progress", ""),
+                result=workflow_status.get("result"),
+                error=workflow_status.get("error"),
             )
         
-        # Get workflow status from Celery
-        workflow_status = get_workflow_status(celery_task_id)
-        
-        return WorkflowStatusResponse(
-            job_id=job_id,
-            task_id=celery_task_id,
-            state=workflow_status["state"],
-            progress=workflow_status.get("progress", ""),
-            result=workflow_status.get("result"),
-            error=workflow_status.get("error"),
-        )
+        return await run_in_threadpool(get_job_and_status)
         
     except HTTPException:
         raise
@@ -263,23 +285,27 @@ async def cancel_interaction(job_id: str, db_session: Session = Depends(get_db))
     logger.info(f"Cancelling job_id={job_id}")
     
     try:
-        # Get job record
-        job = db_session.query(Job).filter(Job.job_id == job_id).first()
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        # Cancel workflow - wrap in threadpool for sync I/O
+        def do_cancel():
+            # Get job record
+            job = db_session.query(Job).filter(Job.job_id == job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+            
+            # Cancel Celery task
+            metadata = json.loads(job.job_metadata or "{}")
+            celery_task_id = metadata.get("celery_task_id")
+            
+            if celery_task_id:
+                cancel_workflow(celery_task_id)
+            
+            # Update job status
+            job.status = "CANCELLED"
+            db_session.commit()
+            
+            logger.info(f"Job {job_id} cancelled")
         
-        # Cancel Celery task
-        metadata = json.loads(job.job_metadata or "{}")
-        celery_task_id = metadata.get("celery_task_id")
-        
-        if celery_task_id:
-            cancel_workflow(celery_task_id)
-        
-        # Update job status
-        job.status = "CANCELLED"
-        db_session.commit()
-        
-        logger.info(f"Job {job_id} cancelled")
+        await run_in_threadpool(do_cancel)
         
         return {
             "job_id": job_id,

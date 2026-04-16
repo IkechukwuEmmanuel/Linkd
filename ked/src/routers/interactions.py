@@ -1,8 +1,10 @@
 import logging
 import tempfile
 import os
+import asyncio
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -38,6 +40,7 @@ def _validate_file_size(file_size: int) -> None:
 async def process_interaction_audio(
     file: UploadFile,
     mode: str = Form("recap"),
+    request: Request = None,
     user_id: int = Depends(get_current_user),
     db_session: Session = Depends(get_db),
 ):
@@ -55,6 +58,11 @@ async def process_interaction_audio(
         ValidationError: If input is invalid
         ExternalServiceError: If processing fails
     """
+    # Apply rate limiting: max 30 interactions per day per user
+    if request:
+        from ..main import limiter
+        await limiter.limit("30/day")(request)
+    
     if mode not in ["live", "recap"]:
         raise ValidationError(f"Invalid mode: {mode}. Must be 'live' or 'recap'")
     
@@ -73,25 +81,35 @@ async def process_interaction_audio(
             tmp.write(content)
             tmp_path = tmp.name
 
-        # Process the audio
-        extracted_interests = deepgram_integration.process_interaction_audio(tmp_path, mode=mode)
+        # Process the audio (blocking I/O - run in thread pool)
+        extracted_interests = await run_in_threadpool(
+            deepgram_integration.process_interaction_audio, tmp_path, mode
+        )
         logger.info(f"[user_id={user_id}] Extracted interests from {mode} mode: {extracted_interests[:100]}...")
 
-        # Create real embedding from extracted interests
-        embedding = deepgram_integration.get_interaction_embedding(extracted_interests)
+        # Create real embedding from extracted interests (blocking API call - run in thread pool)
+        embedding = await run_in_threadpool(
+            deepgram_integration.get_interaction_embedding, extracted_interests
+        )
         logger.debug(f"[user_id={user_id}] Created embedding vector ({len(embedding)} dims)")
 
-        # Find overlaps with user's personas
-        synapses = overlap.compute_top_synapses(user_id, embedding, threshold=0.7, top_k=3)
-
-        # Log the interaction (store transcript + metadata)
-        conversation = models.Conversation(
-            user_id=user_id,
-            transcript=extracted_interests,
-            conversation_metadata=f"mode={mode}",
+        # Find overlaps with user's personas (database query - acceptable in async context but safer in threadpool)
+        synapses = await run_in_threadpool(
+            overlap.compute_top_synapses, user_id, embedding, 0.7, 3
         )
-        db_session.add(conversation)
-        db_session.commit()
+
+        # Log the interaction (store transcript + metadata) - wrap in threadpool for sync I/O
+        def save_conversation():
+            conversation = models.Conversation(
+                user_id=user_id,
+                transcript=extracted_interests,
+                conversation_metadata=f"mode={mode}",
+            )
+            db_session.add(conversation)
+            db_session.commit()
+            return conversation.id
+        
+        conversation_id = await run_in_threadpool(save_conversation)
         
         logger.info(f"[user_id={user_id}] Processed interaction: {mode} mode, found {len(synapses)} synapses")
 
@@ -100,7 +118,7 @@ async def process_interaction_audio(
             "mode": mode,
             "extracted_interests": extracted_interests,
             "top_synapses": synapses,
-            "conversation_id": conversation.id,
+            "conversation_id": conversation_id,
         }
     except ValidationError:
         raise

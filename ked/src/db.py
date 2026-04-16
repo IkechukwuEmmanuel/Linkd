@@ -3,6 +3,7 @@ import logging
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import QueuePool
 
 from .config import settings
 
@@ -16,8 +17,22 @@ if DATABASE_URL:
     masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
     logger.info(f"Using PostgreSQL database at {masked_url}")
 
-# create engine with pgvector extension support
-engine = create_engine(DATABASE_URL, echo=False)
+# Configure connection pool with optimized settings for production
+# - pool_size: number of connections to keep in the pool (recommended: 5-20)
+# - max_overflow: number of additional connections to create when pool is exhausted (recommended: 10-40)
+# - pool_timeout: timeout for acquiring connection from pool (seconds)
+# - pool_recycle: recycle connections after this many seconds (prevents stale connections)
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    poolclass=QueuePool,
+    pool_size=10,  # Maintain 10 open connections
+    max_overflow=20,  # Allow up to 20 additional connections
+    pool_timeout=30,  # 30 second timeout for acquiring connection
+    pool_recycle=3600,  # Recycle connections after 1 hour to prevent timeout issues
+    pool_pre_ping=True,  # Test connections before using (prevents "connection closed" errors)
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

@@ -2,7 +2,8 @@ import logging
 import tempfile
 import os
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 # Initialize Google Genai client
-genai.configure(api_key=settings.gemini_api_key)
-client = genai.Client(api_key=settings.gemini_api_key)
+google_genai = google.genai
+client = google.genai.Client(api_key=settings.gemini_api_key)
 
 
 class PersonaResponse(BaseModel):
@@ -96,6 +97,7 @@ async def _get_embedding(text: str) -> list[float]:
 @router.post("/voice-pitch", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def ingest_voice_pitch(
     file: UploadFile,
+    request: Request,
     user_id: int = Depends(get_current_user),
     db_session: Session = Depends(get_db),
 ):
@@ -112,6 +114,10 @@ async def ingest_voice_pitch(
         ValidationError: If file size exceeds limit
         ExternalServiceError: If processing fails
     """
+    # Apply rate limiting: max 10 persona ingestions per hour per user
+    from ..main import limiter
+    await limiter.limit("10/hour")(request)
+    
     # Validate file size
     if not file.filename or not file.filename.endswith(('.wav', '.mp3', '.ogg')):
         raise ValidationError("File must be an audio file (WAV, MP3, or OGG)")
@@ -128,20 +134,23 @@ async def ingest_voice_pitch(
             tmp.write(content)
             tmp_path = tmp.name
 
-        # Ingest and create personas
-        personas = onboarding_service.ingest_voice_pitch(user_id, tmp_path, db_session)
+        # Ingest and create personas (run in thread pool if blocking)
+        personas = await run_in_threadpool(onboarding_service.ingest_voice_pitch, user_id, tmp_path, db_session)
 
-        # Get embeddings for each persona
+        # Get embeddings for each persona (blocking API calls - run in thread pool)
         for persona_node in personas:
-            embedding = await _get_embedding(persona_node["label"])
-            # Update the persona with embedding in DB
-            db_persona = db_session.query(models.UserPersona).filter(
-                models.UserPersona.user_id == user_id,
-                models.UserPersona.label == persona_node["label"],
-            ).order_by(models.UserPersona.id.desc()).first()
-            if db_persona:
-                db_persona.vector = embedding
-                db_session.commit()
+            embedding = await run_in_threadpool(_get_embedding, persona_node["label"])
+            # Update the persona with embedding in DB (database write - run in threadpool)
+            def update_persona():
+                db_persona = db_session.query(models.UserPersona).filter(
+                    models.UserPersona.user_id == user_id,
+                    models.UserPersona.label == persona_node["label"],
+                ).order_by(models.UserPersona.id.desc()).first()
+                if db_persona:
+                    db_persona.vector = embedding
+                    db_session.commit()
+            
+            await run_in_threadpool(update_persona)
 
         return {"user_id": user_id, "personas_created": len(personas), "personas": personas}
     except Exception as e:

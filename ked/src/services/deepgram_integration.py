@@ -250,33 +250,40 @@ def process_interaction_audio(file_path: str, mode: str = "recap") -> str:
 def get_interaction_embedding(text: str) -> list[float]:
     """Convert extracted interests text to a 1536-dimensional embedding.
     
-    Uses Google Gemini's embedding API (768-dimension, padded to 1536 for DB schema compatibility).
-    These embeddings are compared against persona embeddings using cosine similarity (threshold 0.70).
+    Uses Google Genai's text-embedding-004 API (native 768 dimensions, padded to 1536).
+    Consistent with persona embeddings and semantic matching (threshold 0.70).
     
     Args:
         text: Extracted interests text from Deepgram processing
         
     Returns:
-        List of 1536 floats representing semantic vector (padded). Returns zero vector if embedding fails.
+        List of 1536 floats representing semantic vector (padded for DB compatibility).
+        Returns zero vector if embedding fails.
         
     Note:
         This is used in the Semantic Overlap Engine (Step 3: Embed).
-        Gemini native 768-dim padded to 1536 for database schema compatibility.
+        Uses text-embedding-004 model (modern, efficient).
+        Native 768-dim vectors are padded to 1536 to match database schema.
     """
     if not text or not text.strip():
         logger.warning("Empty text provided to get_interaction_embedding; returning zero vector")
         return [0.0] * 1536
     
     try:
-        response = genai.embed_content(
-            model="models/embedding-001",
+        response = genai_client.models.embed_content(
+            model="models/text-embedding-004",
             content=text,
         )
-        embedding = response["embedding"]
-        # Pad from 768 to 1536 dimensions for database schema compatibility
-        padded = embedding + [0.0] * (1536 - len(embedding))
+        embedding = response.embedding
+        
+        # Pad from native 768 to 1536 dimensions for database schema compatibility
+        if len(embedding) < 1536:
+            embedding = embedding + [0.0] * (1536 - len(embedding))
+        elif len(embedding) > 1536:
+            embedding = embedding[:1536]
+        
         logger.info(f"Created embedding for interaction text ({len(text)} chars): {text[:50]}...")
-        return padded
+        return embedding
     except Exception as e:
         logger.error(f"Failed to create embedding for interaction: {e}")
         # Return zero vector as fallback

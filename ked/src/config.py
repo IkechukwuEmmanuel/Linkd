@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 
 
 class Settings(BaseSettings):
@@ -34,8 +34,9 @@ class Settings(BaseSettings):
     # Audio storage configuration
     audio_storage_dir: str = "/data/linkd/users"  # Base directory for user audio files
     
-    # CORS configuration
-    cors_origins: list = ["http://localhost:3000", "http://localhost:8080"]
+    # CORS configuration - Production-ready
+    # Can be set via CORS_ORIGINS environment variable (comma-separated list)
+    cors_origins: list = []  # Will be populated by validator or environment
     
     # Rate limiting
     rate_limit_enabled: bool = True
@@ -55,5 +56,47 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""  # Public anon key for client-side auth
     supabase_service_role_key: str = ""  # Server-side service role key (optional)
 
-settings = Settings()  # loads from .env by default
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from environment or provide sensible defaults.
+        
+        Can be:
+        - Comma-separated string: "https://example.com,https://app.example.com"
+        - List: ["https://example.com", "https://app.example.com"]
+        - Empty/None: Uses defaults based on environment
+        """
+        if isinstance(v, str):
+            # Parse comma-separated string
+            if not v or v.lower() == "none":
+                return []
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        
+        if isinstance(v, list):
+            return v
+        
+        return []
 
+    def get_cors_origins(self) -> list:
+        """Get CORS origins with sensible defaults based on environment.
+        
+        Returns:
+            List of allowed CORS origins
+        """
+        if self.cors_origins:
+            # Explicitly configured origins
+            return self.cors_origins
+        
+        # Default origins based on environment
+        if self.environment == "production":
+            # Production: allow frontend domain only
+            # Must be configured via environment variable
+            return []
+        elif self.environment == "staging":
+            # Staging: allow staging domain + localhost
+            return ["https://staging.example.com", "http://localhost:3000", "http://localhost:8080"]
+        else:
+            # Development: allow localhost
+            return ["http://localhost:3000", "http://localhost:8080", "http://127.0.0.1:3000"]
+
+settings = Settings()  # loads from .env by default

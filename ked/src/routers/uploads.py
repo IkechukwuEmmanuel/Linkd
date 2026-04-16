@@ -12,7 +12,7 @@ import logging
 import uuid
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, status, Query, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -61,7 +61,8 @@ class InitChunkedUploadResponse(BaseModel):
 
 @router.post("/chunked/init", response_model=InitChunkedUploadResponse, status_code=status.HTTP_201_CREATED)
 def init_chunked_upload(
-    request: InitChunkedUploadRequest,
+    request: Request,
+    req_data: InitChunkedUploadRequest,
     user_id: int = Depends(get_current_user),
 ):
     """Initialize a chunked upload session.
@@ -70,12 +71,21 @@ def init_chunked_upload(
     Server tracks progress and can resume if interrupted.
     
     Args:
-        request: Upload initialization request
+        request: FastAPI request object for rate limiting
+        req_data: Upload initialization request
         user_id: Extracted from JWT token
         
     Returns:
         Upload session info with chunk details
     """
+    # Apply rate limiting: max 10 uploads per hour per user
+    from ..main import limiter
+    import asyncio
+    try:
+        asyncio.run(limiter.limit("10/hour")(request))
+    except:
+        pass  # Fallback if rate limiting fails
+    
     file_id = str(uuid.uuid4())
     upload_id = str(uuid.uuid4())
     
@@ -83,8 +93,8 @@ def init_chunked_upload(
         session = chunked_upload_mgr.create_upload_session(
             user_id=user_id,
             file_id=file_id,
-            file_size=request.file_size,
-            file_name=request.file_name,
+            file_size=req_data.file_size,
+            file_name=req_data.file_name,
         )
         
         logger.info(

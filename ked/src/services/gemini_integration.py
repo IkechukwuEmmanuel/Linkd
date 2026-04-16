@@ -8,24 +8,24 @@ Provides centralized Gemini API access for:
 """
 
 import logging
-import google.generativeai as genai
+import google.genai as genai
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Configure Gemini API
-genai.configure(api_key=settings.gemini_api_key)
+# Initialize Gemini API client
+genai_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 def get_gemini_client():
     """Get or create Gemini API client.
     
     Returns:
-        Configured GenerativeModel client for Gemini API
+        Configured Gemini client for API calls
     """
     try:
-        # Return a default model for generation
-        return genai.GenerativeModel("gemini-pro")
+        # Return the globally initialized client
+        return genai_client
     except Exception as e:
         logger.error(f"Failed to get Gemini client: {e}")
         return None
@@ -47,9 +47,10 @@ async def generate_content(prompt: str, max_tokens: int = 500, temperature: floa
         if not client:
             raise RuntimeError("Gemini client not initialized")
         
-        response = client.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = await client.aio.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
             ),
@@ -62,25 +63,29 @@ async def generate_content(prompt: str, max_tokens: int = 500, temperature: floa
         raise
 
 
-def embed_text(text: str, model: str = "embedding-001") -> list:
+def embed_text(text: str, model: str = "text-embedding-004") -> list:
     """Generate embeddings for text using Gemini.
     
     Args:
         text: Text to embed
-        model: Embedding model to use
+        model: Embedding model to use (default: text-embedding-004)
         
     Returns:
-        List of embeddings (768-dim, padded to 1536)
+        List of embeddings (1536-dim)
     """
     try:
-        response = genai.embed_content(
+        client = get_gemini_client()
+        if not client:
+            raise RuntimeError("Gemini client not initialized")
+        
+        response = client.models.embed_content(
             model=f"models/{model}",
             content=text,
         )
         
-        embedding = response['embedding']
+        embedding = response.embedding
         
-        # Pad to 1536 dimensions for consistency
+        # Ensure consistent 1536 dimensions (text-embedding-004 produces 768, padded to 1536)
         if len(embedding) < 1536:
             embedding = embedding + [0.0] * (1536 - len(embedding))
         else:

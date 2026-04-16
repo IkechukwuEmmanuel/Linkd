@@ -3,6 +3,7 @@ import os
 import boto3
 from datetime import datetime, timedelta
 from pathlib import Path
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +17,13 @@ class S3StorageService:
             os.getenv("AWS_SECRET_ACCESS_KEY"),
             os.getenv("AWS_S3_BUCKET"),
         ])
-        self.local_storage_path = Path("/tmp/linkd_audio")
+        # Use configured audio storage directory (persistent, not /tmp)
+        self.local_storage_path = Path(settings.audio_storage_dir) / "audio"
         
         if not self.use_s3:
-            logger.warning("S3 not configured; using local filesystem for storage")
-            self.local_storage_path.mkdir(parents=True, exist_ok=True)
+            logger.warning(f"S3 not configured; using persistent local storage: {self.local_storage_path}")
+            # Create directory with proper permissions
+            self.local_storage_path.mkdir(parents=True, exist_ok=True, mode=0o755)
         else:
             self.bucket_name = os.getenv("AWS_S3_BUCKET")
             self.s3_client = boto3.client(
