@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime, func, Float
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime, func, Float, Boolean, Date
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from pgvector.sqlalchemy import Vector
 
 from .db import Base
@@ -102,3 +102,70 @@ class InteractionMetric(Base):
     user_approved = Column(Integer, default=0)  # Number of approved synapses
     user_rejected = Column(Integer, default=0)  # Number of rejected synapses
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Contact(Base):
+    """Contact relationship card extracted from voice notes."""
+    __tablename__ = "contacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    company = Column(String(255))
+    role = Column(String(255))
+    email = Column(String(255))
+    phone = Column(String(50))
+    linkedin_url = Column(Text)
+    event_name = Column(String(255))
+    event_date = Column(Date)
+    location = Column(String(255))
+    notes = Column(Text)
+    interests = Column(JSONB, default=[])
+    opportunities = Column(JSONB, default=[])
+    summary = Column(Text)
+    overlap_points = Column(JSONB, default=[])
+    overlap_score = Column(Float, default=0.0)
+    follow_up_draft = Column(Text)
+    follow_up_sent = Column(Boolean, default=False)
+    follow_up_due = Column(DateTime(timezone=True))
+    follow_up_completed = Column(Boolean, default=False)
+    relationship_strength = Column(Integer, default=1)
+    last_interaction_at = Column(DateTime(timezone=True))
+    interaction_count = Column(Integer, default=1)
+    source_type = Column(String(50), default="voice_note")
+    source_recording_id = Column(String(255))
+    is_starred = Column(Boolean, default=False)
+    tags = Column(JSONB, default=[])
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    interactions = relationship("ContactInteraction", back_populates="contact", cascade="all, delete-orphan")
+
+
+class ContactInteraction(Base):
+    """Timeline of interactions with a contact."""
+    __tablename__ = "contact_interactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    contact_id = Column(Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False, index=True)
+    interaction_type = Column(String(50), nullable=False, default="initial_capture")
+    content = Column(Text)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    contact = relationship("Contact", back_populates="interactions")
+
+
+class Notification(Base):
+    """Follow-up reminders and system notifications."""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    type = Column(String(50), nullable=False, default="follow_up_reminder")
+    title = Column(String(255), nullable=False)
+    body = Column(Text)
+    read = Column(Boolean, default=False)
+    contact_id = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

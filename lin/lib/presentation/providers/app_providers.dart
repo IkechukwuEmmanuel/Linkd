@@ -48,6 +48,24 @@ final jobStatusProvider = FutureProvider.autoDispose.family<Job, String>((ref, j
   return apiClient.getJobStatus(user.id, jobId);
 });
 
+/// Get all contacts for current user
+final contactsProvider = FutureProvider.autoDispose<List<Contact>>((ref) async {
+  final apiClient = ref.watch(apiClientProvider);
+  return apiClient.getContacts();
+});
+
+/// Get upcoming follow-ups
+final upcomingFollowUpsProvider = FutureProvider.autoDispose<List<Contact>>((ref) async {
+  final apiClient = ref.watch(apiClientProvider);
+  return apiClient.getUpcomingFollowUps();
+});
+
+/// Get insights summary
+final insightsSummaryProvider = FutureProvider.autoDispose<InsightsSummary>((ref) async {
+  final apiClient = ref.watch(apiClientProvider);
+  return apiClient.getInsightsSummary();
+});
+
 // ==================== OPERATION PROVIDERS ====================
 
 /// Upload voice pitch

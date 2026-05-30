@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 
 
 class Settings(BaseSettings):
@@ -54,6 +54,20 @@ class Settings(BaseSettings):
     supabase_url: str = ""  # e.g., https://project.supabase.co
     supabase_anon_key: str = ""  # Public anon key for client-side auth
     supabase_service_role_key: str = ""  # Server-side service role key (optional)
+
+    # Search API (Phase 4)
+    serper_api_key: str = ""  # Serper.dev API key for web search
+
+    # Encryption (Phase 4)
+    fernet_encryption_key: str = ""  # Optional data encryption key
+
+    @field_validator('jwt_secret_key')
+    @classmethod
+    def validate_jwt_secret(cls, v, info):
+        env = info.data.get('environment', 'development') if info.data else 'development'
+        if not v and env != 'development':
+            raise ValueError('jwt_secret_key must be set in non-development environments')
+        return v or 'dev-secret-key-change-me'
 
 settings = Settings()  # loads from .env by default
 

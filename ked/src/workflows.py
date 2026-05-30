@@ -209,9 +209,9 @@ def start_interaction_workflow_v2b(
     Returns:
         Task ID for monitoring
     """
-    from .source_dispatcher import dispatch_source_queries
-    from .identity_resolution import resolve_person_identity
-    from .synthesis_tasks import (
+    from .tasks.source_dispatcher import dispatch_source_queries
+    from .tasks.identity_resolution import resolve_person_identity
+    from .tasks.synthesis_tasks import (
         triple_vector_synthesis,
         calculate_social_quadrant,
         draft_warm_outreach_v2,

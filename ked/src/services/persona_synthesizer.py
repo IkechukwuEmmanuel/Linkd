@@ -1,8 +1,12 @@
 import json
-import google.generativeai as genai
+import logging
+import google.genai as genai
 from ..config import settings
 
-genai.configure(api_key=settings.gemini_api_key)
+logger = logging.getLogger(__name__)
+
+# Initialize new GenAI client
+genai_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 def synthesize_persona(text: str) -> list[dict]:
@@ -18,16 +22,25 @@ def synthesize_persona(text: str) -> list[dict]:
     )
     
     try:
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
                 temperature=0.7,
                 max_output_tokens=500,
             ),
         )
-        nodes = json.loads(response.text.strip())
+        output_text = response.text.strip()
+        
+        # Strip markdown code fences if present
+        if output_text.startswith("```"):
+            output_text = output_text.split("\n", 1)[-1]
+            if output_text.endswith("```"):
+                output_text = output_text[:-3]
+            output_text = output_text.strip()
+        
+        nodes = json.loads(output_text)
         return nodes
     except Exception as e:
-        print(f"Error synthesizing personas: {e}")
+        logger.error(f"Error synthesizing personas: {e}")
         return []

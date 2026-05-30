@@ -10,6 +10,7 @@ Features:
 import logging
 import uuid
 import asyncio
+import base64
 import tempfile
 import subprocess
 import os
@@ -177,7 +178,8 @@ async def ingest_audio(
 
             # Branch B: Dispatch Celery transcription immediately with bytes (no wait)
             try:
-                transcribe_audio_bytes.delay(user_id, job_id, processed_bytes, mode)
+                audio_b64 = base64.b64encode(processed_bytes).decode('utf-8')
+                transcribe_audio_bytes.delay(user_id, job_id, audio_b64, mode)
                 logger.info(f"[{user_id}] Dispatched transcription task (job={job_id})")
             except Exception as e:
                 logger.warning(f"Failed to dispatch transcription task: {e}")

@@ -272,3 +272,167 @@ class AuthResponse {
     );
   }
 }
+
+class Contact {
+  final int id;
+  final String name;
+  final String? company;
+  final String? role;
+  final String? email;
+  final String? phone;
+  final String? linkedinUrl;
+  final String? eventName;
+  final String? eventDate;
+  final String? location;
+  final String? notes;
+  final List<String> interests;
+  final List<String> opportunities;
+  final String? summary;
+  final List<String> overlapPoints;
+  final double overlapScore;
+  final String? followUpDraft;
+  final bool followUpSent;
+  final String? followUpDue;
+  final bool followUpCompleted;
+  final int relationshipStrength;
+  final String? lastInteractionAt;
+  final int interactionCount;
+  final bool isStarred;
+  final List<String> tags;
+  final String? createdAt;
+  final String? updatedAt;
+  final List<ContactInteractionItem>? interactions;
+
+  Contact({
+    required this.id,
+    required this.name,
+    this.company,
+    this.role,
+    this.email,
+    this.phone,
+    this.linkedinUrl,
+    this.eventName,
+    this.eventDate,
+    this.location,
+    this.notes,
+    this.interests = const [],
+    this.opportunities = const [],
+    this.summary,
+    this.overlapPoints = const [],
+    this.overlapScore = 0.0,
+    this.followUpDraft,
+    this.followUpSent = false,
+    this.followUpDue,
+    this.followUpCompleted = false,
+    this.relationshipStrength = 1,
+    this.lastInteractionAt,
+    this.interactionCount = 1,
+    this.isStarred = false,
+    this.tags = const [],
+    this.createdAt,
+    this.updatedAt,
+    this.interactions,
+  });
+
+  factory Contact.fromJson(Map<String, dynamic> json) {
+    return Contact(
+      id: json['id'],
+      name: json['name'] ?? 'Unknown',
+      company: json['company'],
+      role: json['role'],
+      email: json['email'],
+      phone: json['phone'],
+      linkedinUrl: json['linkedin_url'],
+      eventName: json['event_name'],
+      eventDate: json['event_date'],
+      location: json['location'],
+      notes: json['notes'],
+      interests: List<String>.from(json['interests'] ?? []),
+      opportunities: List<String>.from(json['opportunities'] ?? []),
+      summary: json['summary'],
+      overlapPoints: List<String>.from(json['overlap_points'] ?? []),
+      overlapScore: (json['overlap_score'] as num?)?.toDouble() ?? 0.0,
+      followUpDraft: json['follow_up_draft'],
+      followUpSent: json['follow_up_sent'] ?? false,
+      followUpDue: json['follow_up_due'],
+      followUpCompleted: json['follow_up_completed'] ?? false,
+      relationshipStrength: json['relationship_strength'] ?? 1,
+      lastInteractionAt: json['last_interaction_at'],
+      interactionCount: json['interaction_count'] ?? 1,
+      isStarred: json['is_starred'] ?? false,
+      tags: List<String>.from(json['tags'] ?? []),
+      createdAt: json['created_at'],
+      updatedAt: json['updated_at'],
+      interactions: (json['interactions'] as List?)
+          ?.map((e) => ContactInteractionItem.fromJson(e))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'company': company,
+    'role': role,
+    'email': email,
+    'phone': phone,
+    'linkedin_url': linkedinUrl,
+    'event_name': eventName,
+    'interests': interests,
+    'opportunities': opportunities,
+    'summary': summary,
+    'notes': notes,
+    'tags': tags,
+  };
+}
+
+class ContactInteractionItem {
+  final int id;
+  final int contactId;
+  final String interactionType;
+  final String? content;
+  final String? recordedAt;
+
+  ContactInteractionItem({
+    required this.id,
+    required this.contactId,
+    required this.interactionType,
+    this.content,
+    this.recordedAt,
+  });
+
+  factory ContactInteractionItem.fromJson(Map<String, dynamic> json) {
+    return ContactInteractionItem(
+      id: json['id'],
+      contactId: json['contact_id'],
+      interactionType: json['interaction_type'] ?? 'unknown',
+      content: json['content'],
+      recordedAt: json['recorded_at'],
+    );
+  }
+}
+
+class InsightsSummary {
+  final int totalContacts;
+  final int followUpsDue;
+  final int starredContacts;
+  final List<Map<String, dynamic>> clusters;
+  final List<Map<String, dynamic>> recentContacts;
+
+  InsightsSummary({
+    required this.totalContacts,
+    required this.followUpsDue,
+    required this.starredContacts,
+    this.clusters = const [],
+    this.recentContacts = const [],
+  });
+
+  factory InsightsSummary.fromJson(Map<String, dynamic> json) {
+    return InsightsSummary(
+      totalContacts: json['total_contacts'] ?? 0,
+      followUpsDue: json['follow_ups_due'] ?? 0,
+      starredContacts: json['starred_contacts'] ?? 0,
+      clusters: List<Map<String, dynamic>>.from(json['clusters'] ?? []),
+      recentContacts: List<Map<String, dynamic>>.from(json['recent_contacts'] ?? []),
+    );
+  }
+}

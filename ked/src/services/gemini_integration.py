@@ -8,27 +8,22 @@ Provides centralized Gemini API access for:
 """
 
 import logging
-import google.generativeai as genai
+import google.genai as genai
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Configure Gemini API
-genai.configure(api_key=settings.gemini_api_key)
+# Initialize new GenAI client
+genai_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 def get_gemini_client():
-    """Get or create Gemini API client.
+    """Get the Gemini API client.
     
     Returns:
-        Configured GenerativeModel client for Gemini API
+        Configured genai.Client instance
     """
-    try:
-        # Return a default model for generation
-        return genai.GenerativeModel("gemini-pro")
-    except Exception as e:
-        logger.error(f"Failed to get Gemini client: {e}")
-        return None
+    return genai_client
 
 
 async def generate_content(prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> str:
@@ -43,13 +38,10 @@ async def generate_content(prompt: str, max_tokens: int = 500, temperature: floa
         Generated text response
     """
     try:
-        client = get_gemini_client()
-        if not client:
-            raise RuntimeError("Gemini client not initialized")
-        
-        response = client.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
             ),
@@ -62,7 +54,7 @@ async def generate_content(prompt: str, max_tokens: int = 500, temperature: floa
         raise
 
 
-def embed_text(text: str, model: str = "embedding-001") -> list:
+def embed_text(text: str, model: str = "text-embedding-004") -> list:
     """Generate embeddings for text using Gemini.
     
     Args:
@@ -70,15 +62,16 @@ def embed_text(text: str, model: str = "embedding-001") -> list:
         model: Embedding model to use
         
     Returns:
-        List of embeddings (768-dim, padded to 1536)
+        List of embeddings (padded to 1536)
     """
     try:
-        response = genai.embed_content(
+        response = genai_client.models.embed_content(
             model=f"models/{model}",
             content=text,
         )
         
-        embedding = response['embedding']
+        embedding = response.embeddings[0].values if hasattr(response, 'embeddings') else response.embedding
+        embedding = list(embedding)
         
         # Pad to 1536 dimensions for consistency
         if len(embedding) < 1536:

@@ -79,29 +79,61 @@ class GitHubScraper:
             GitHubProfile or None if not found
         """
         try:
+            import aiohttp
             logger.info(f"Scraping GitHub profile: {username}")
             
-            # Check rate limit (GitHub public API: 60 req/hour without auth)
-            from ..services.rate_limiter import get_rate_limiter
-            rate_limiter = get_rate_limiter()
+            async with aiohttp.ClientSession() as session:
+                # Fetch user profile
+                async with session.get(
+                    f"{self.base_url}/users/{username}",
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"GitHub API returned {resp.status} for {username}")
+                        return None
+                    user_data = await resp.json()
+                
+                # Fetch top repositories
+                async with session.get(
+                    f"{self.base_url}/users/{username}/repos",
+                    params={"sort": "stars", "per_page": 10, "direction": "desc"},
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    repos_data = await resp.json() if resp.status == 200 else []
             
-            if not rate_limiter.is_allowed("github"):
-                remaining = rate_limiter.get_remaining("github")
-                logger.warning(f"GitHub rate limit may be exceeded (remaining: {remaining})")
-                # Don't block - continue anyway since GitHub is public
+            # Parse repositories
+            repositories = []
+            for repo in (repos_data if isinstance(repos_data, list) else []):
+                repositories.append(GitHubRepository(
+                    name=repo.get("name", ""),
+                    description=repo.get("description", "") or "",
+                    url=repo.get("html_url", ""),
+                    stars=repo.get("stargazers_count", 0),
+                    forks=repo.get("forks_count", 0),
+                    language=repo.get("language", "") or "",
+                    topics=repo.get("topics", []),
+                    is_fork=repo.get("fork", False),
+                ))
             
-            # Mock implementation - in production, use aiohttp or requests to GitHub API
+            # Build profile
             profile = GitHubProfile(
                 username=username,
-                name="Sample Name",
-                bio="Sample bio",
-                follower_count=10,
-                following_count=5,
-                public_repo_count=5,
-                repositories=[],
+                name=user_data.get("name"),
+                bio=user_data.get("bio"),
+                follower_count=user_data.get("followers", 0),
+                following_count=user_data.get("following", 0),
+                public_repo_count=user_data.get("public_repos", 0),
+                location=user_data.get("location"),
+                blog_url=user_data.get("blog"),
+                twitter=user_data.get("twitter_username"),
+                email=user_data.get("email"),
+                created_at=datetime.fromisoformat(user_data["created_at"].replace("Z", "+00:00")) if user_data.get("created_at") else None,
+                repositories=repositories,
             )
             
-            logger.info(f"Successfully scraped GitHub profile: {username}")
+            logger.info(f"Successfully scraped GitHub profile: {username} ({profile.public_repo_count} repos, {profile.total_stars} stars)")
             return profile
             
         except Exception as e:

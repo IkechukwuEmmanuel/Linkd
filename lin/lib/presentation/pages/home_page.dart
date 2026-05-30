@@ -15,6 +15,8 @@ class HomePage extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final personasAsync = ref.watch(personasProvider);
     final metricsAsync = ref.watch(metricsProvider);
+    final contactsAsync = ref.watch(contactsProvider);
+    final followUpsAsync = ref.watch(upcomingFollowUpsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -98,16 +100,191 @@ class HomePage extends ConsumerWidget {
                       ),
                       _buildActionCard(
                         context,
-                        icon: Icons.add_circle,
-                        title: 'Add More\nPersonas',
+                        icon: Icons.contacts,
+                        title: 'View\nContacts',
                         onTap: () {
-                          // Navigate to onboarding
+                          // Navigate to contacts (tab 2)
                         },
                       ),
                     ],
                   ),
 
                   const SizedBox(height: 32),
+
+                  // Follow-ups Due
+                  followUpsAsync.when(
+                    data: (followUps) {
+                      if (followUps.isNotEmpty) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'Follow-ups Due',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.accentColor,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    followUps.length.toString(),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              height: 90,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: followUps.take(5).length,
+                                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                                itemBuilder: (context, index) {
+                                  final contact = followUps[index];
+                                  return Container(
+                                    width: 200,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.surfaceColor,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: AppTheme.accentColor.withOpacity(0.3)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          contact.name,
+                                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (contact.company != null)
+                                          Text(
+                                            contact.company!,
+                                            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Icon(Icons.schedule, size: 14, color: AppTheme.accentColor),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Follow up soon',
+                                              style: TextStyle(fontSize: 11, color: AppTheme.accentColor, fontWeight: FontWeight.w500),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, __) => const SizedBox.shrink(),
+                  ),
+
+                  // Recent Contacts
+                  contactsAsync.when(
+                    data: (contacts) {
+                      if (contacts.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Recent Contacts',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          ListView.builder(
+                            itemCount: contacts.take(3).length,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemBuilder: (context, index) {
+                              final contact = contacts[index];
+                              final overlapPct = (contact.overlapScore * 100).toInt();
+                              final overlapColor = contact.overlapScore >= 0.7
+                                  ? AppTheme.secondaryColor
+                                  : contact.overlapScore >= 0.4
+                                      ? const Color(0xFFFFA500)
+                                      : AppTheme.accentColor;
+                              return Card(
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(color: AppTheme.borderColor),
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  leading: Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(contact.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                  subtitle: Text(
+                                    [contact.role, contact.company]
+                                        .where((s) => s != null)
+                                        .join(' • '),
+                                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: overlapColor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '$overlapPct%',
+                                      style: TextStyle(
+                                        color: overlapColor,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                      );
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, __) => const SizedBox.shrink(),
+                  ),
 
                   // Recent personas preview
                   personasAsync.when(

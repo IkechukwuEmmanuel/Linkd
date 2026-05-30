@@ -1,6 +1,6 @@
 import logging
 import json
-import google.generativeai as genai
+import google.genai as genai
 from sqlalchemy.orm import Session
 
 from ..models import UserPersona, InterestNode
@@ -9,7 +9,8 @@ from . import deepgram_integration, linkedin_scraper
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=settings.gemini_api_key)
+# Initialize new Google GenAI client
+genai_client = genai.Client(api_key=settings.gemini_api_key)
 
 
 def ingest_voice_pitch(user_id: int, audio_file_path: str, db: Session) -> list[dict]:
@@ -91,15 +92,22 @@ def _synthesize_personas(text: str) -> list[dict]:
     )
 
     try:
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
                 temperature=0.7,
                 max_output_tokens=500,
             ),
         )
         output_text = response.text.strip()
+        
+        # Strip markdown code fences if present
+        if output_text.startswith("```"):
+            output_text = output_text.split("\n", 1)[-1]
+            if output_text.endswith("```"):
+                output_text = output_text[:-3]
+            output_text = output_text.strip()
         
         # Parse JSON response
         nodes = json.loads(output_text)

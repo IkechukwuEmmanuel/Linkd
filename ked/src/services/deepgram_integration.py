@@ -268,16 +268,20 @@ def get_interaction_embedding(text: str) -> list[float]:
         return [0.0] * 1536
     
     try:
-        response = genai.embed_content(
-            model="models/embedding-001",
+        response = genai_client.models.embed_content(
+            model="models/text-embedding-004",
             content=text,
         )
-        embedding = response["embedding"]
-        # Pad from 768 to 1536 dimensions for database schema compatibility
-        padded = embedding + [0.0] * (1536 - len(embedding))
+        embedding = response.embeddings[0].values if hasattr(response, 'embeddings') else response.embedding
+        # Pad from native dimensions to 1536 dimensions for database schema compatibility
+        if len(embedding) < 1536:
+            padded = list(embedding) + [0.0] * (1536 - len(embedding))
+        else:
+            padded = list(embedding[:1536])
         logger.info(f"Created embedding for interaction text ({len(text)} chars): {text[:50]}...")
         return padded
     except Exception as e:
         logger.error(f"Failed to create embedding for interaction: {e}")
         # Return zero vector as fallback
         return [0.0] * 1536
+
