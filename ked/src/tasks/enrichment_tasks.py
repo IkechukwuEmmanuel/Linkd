@@ -86,8 +86,8 @@ def extract_name_context(self, transcription_result: dict):
     self.update_state(state="NAME_EXTRACTION", meta={"progress": "Finding contact names..."})
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
+        import google.genai as genai
+        genai_client = genai.Client(api_key=settings.gemini_api_key)
         
         prompt = f"""From this conversation transcript, identify any person names mentioned.
 For each person found, create a search query that includes:
@@ -102,10 +102,10 @@ Return JSON: {{"persons": [{{"name": "...", "search_query": "...", "confidence":
 
 Return ONLY valid JSON."""
         
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
                 temperature=0.5,
                 max_output_tokens=500,
             ),

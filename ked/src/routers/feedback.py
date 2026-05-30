@@ -157,51 +157,23 @@ def get_user_metrics(
     except Exception as e:
         logger.error(f"[user_id={user_id}] Failed to get metrics: {e}")
         raise HTTPException(status_code=500, detail="Failed to get metrics")
-        user_id: User ID
-        persona_id: Persona ID
-        
-    Returns:
-        List of feedback records
-    """
-    # Verify persona belongs to user
-    persona = db_session.query(models.UserPersona).filter(
-        models.UserPersona.id == persona_id,
-        models.UserPersona.user_id == user_id,
-    ).first()
-    
-    if not persona:
-        raise HTTPException(status_code=404, detail="Persona not found")
-    
-    feedbacks = db_session.query(models.PersonaFeedback).filter(
-        models.PersonaFeedback.persona_id == persona_id,
-    ).order_by(models.PersonaFeedback.created_at.desc()).all()
-    
-    return [
-        {
-            "feedback_type": f.feedback_type,
-            "rating": f.rating,
-            "notes": f.notes,
-            "created_at": f.created_at.isoformat(),
-        }
-        for f in feedbacks
-    ]
 
 
 @router.post("/interaction/{metric_id}")
 def submit_interaction_feedback(
-    user_id: int,
     metric_id: int,
     approved_count: int,
     rejected_count: int,
+    user_id: int = Depends(get_current_user),
     db_session: Session = Depends(get_db),
 ):
     """Submit feedback on interaction results (approved/rejected synapse count).
     
     Args:
-        user_id: User ID
         metric_id: Metric ID from interaction
         approved_count: Number of approved synapses
         rejected_count: Number of rejected synapses
+        user_id: Extracted from JWT token
         
     Returns:
         Feedback confirmation
@@ -230,28 +202,9 @@ def submit_interaction_feedback(
     }
 
 
-@router.get("/metrics")
-def get_user_metrics(
-    user_id: int,
-    mode: str = None,  # "live" or "recap"
-    db_session: Session = Depends(get_db),
-) -> MetricsResponse:
-    """Get user's accuracy and performance metrics.
-    
-    Args:
-        user_id: User ID
-        mode: Optional mode filter
-        
-    Returns:
-        Metrics summary
-    """
-    summary = MetricsService.get_accuracy_summary(user_id)
-    return MetricsResponse(**summary)
-
-
 @router.get("/metrics/interactions")
 def get_interaction_metrics(
-    user_id: int,
+    user_id: int = Depends(get_current_user),
     mode: str = None,
     limit: int = 50,
     db_session: Session = Depends(get_db),
@@ -259,7 +212,7 @@ def get_interaction_metrics(
     """Get detailed metrics for recent interactions.
     
     Args:
-        user_id: User ID
+        user_id: Extracted from JWT token
         mode: Optional mode filter ("live" or "recap")
         limit: Max results
         
@@ -268,3 +221,4 @@ def get_interaction_metrics(
     """
     metrics = MetricsService.get_user_metrics(user_id, mode, limit)
     return {"count": len(metrics), "metrics": metrics}
+

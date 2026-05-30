@@ -101,6 +101,21 @@ def _apply_rls():
             "user_isolation_conversations",
             "user_id = current_setting('app.current_user_id')::int",
         ),
+        (
+            "jobs",
+            "user_isolation_jobs",
+            "user_id = current_setting('app.current_user_id')::int",
+        ),
+        (
+            "persona_feedback",
+            "user_isolation_persona_feedback",
+            "user_id = current_setting('app.current_user_id')::int",
+        ),
+        (
+            "interaction_metrics",
+            "user_isolation_interaction_metrics",
+            "user_id = current_setting('app.current_user_id')::int",
+        ),
     ]
 
     with engine.connect() as conn:

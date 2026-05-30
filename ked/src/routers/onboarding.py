@@ -12,13 +12,13 @@ from ..config import settings
 from ..auth import get_current_user
 from ..exceptions import ValidationError, ExternalServiceError
 import google.genai
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 # Initialize Google Genai client
-genai.configure(api_key=settings.gemini_api_key)
-client = genai.Client(api_key=settings.gemini_api_key)
+client = google.genai.Client(api_key=settings.gemini_api_key)
 
 
 class PersonaResponse(BaseModel):
@@ -180,7 +180,7 @@ async def ingest_linkedin_profile(
 
     try:
         # Ingest profile and create personas
-        personas = await onboarding_service.ingest_linkedin_profile(user_id, profile_url, db_session)
+        personas = await run_in_threadpool(onboarding_service.ingest_linkedin_profile, user_id, profile_url, db_session)
 
         # Get embeddings for each persona
         for persona_node in personas:

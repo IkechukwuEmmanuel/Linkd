@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../pages/home_page.dart';
-import '../pages/personas_screen.dart';
+import '../pages/contacts_page.dart';
 import '../pages/record_interaction_screen.dart';
 import '../pages/metrics_screen.dart';
 import '../pages/settings_screen.dart';
-import '../pages/onboarding_screen.dart';
 
 /// Main navigation shell with bottom navigation
 class MainNavigationShell extends ConsumerStatefulWidget {
@@ -21,7 +20,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   static const List<Widget> _screens = [
     HomePage(),
     RecordInteractionScreen(),
-    PersonasScreen(),
+    ContactsPage(),
     MetricsScreen(),
     SettingsScreen(),
   ];
@@ -50,8 +49,8 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
             label: 'Record',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.people),
-            label: 'Personas',
+            icon: Icon(Icons.contacts),
+            label: 'Contacts',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.bar_chart),

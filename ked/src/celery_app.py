@@ -85,6 +85,38 @@ app.conf.task_routes = {
     "src.tasks.enrichment_tasks.*": {"queue": "enrichment"},
     "src.tasks.synthesis_tasks.*": {"queue": "transcription"},
     "src.tasks.pii_scrubbing.*": {"queue": "default"},
+    "src.tasks.contact_tasks.*": {"queue": "default"},
+    "src.tasks.reminder_tasks.*": {"queue": "default"},
+}
+
+# Auto-discover task modules
+app.autodiscover_tasks([
+    "src.tasks.transcription_tasks",
+    "src.tasks.enrichment_tasks",
+    "src.tasks.synthesis_tasks",
+    "src.tasks.contact_tasks",
+    "src.tasks.reminder_tasks",
+])
+
+# Celery Beat schedule — periodic tasks
+from celery.schedules import crontab
+
+app.conf.beat_schedule = {
+    "send-follow-up-reminders": {
+        "task": "src.tasks.reminder_tasks.send_follow_up_reminders",
+        "schedule": crontab(hour=9, minute=0),  # Daily at 9 AM UTC
+        "options": {"queue": "default"},
+    },
+    "update-relationship-strength": {
+        "task": "src.tasks.reminder_tasks.update_relationship_strength",
+        "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),  # Weekly on Sunday at 3 AM
+        "options": {"queue": "default"},
+    },
+    "delete-expired-audio": {
+        "task": "src.tasks.reminder_tasks.delete_expired_audio",
+        "schedule": crontab(hour=2, minute=0),  # Daily at 2 AM UTC
+        "options": {"queue": "default"},
+    },
 }
 
 logger.info("Celery app initialized with Redis broker")

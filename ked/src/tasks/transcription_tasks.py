@@ -6,6 +6,7 @@ Routed to the 'transcription' worker queue.
 
 import logging
 import tempfile
+import base64
 import os
 from celery import Task
 from ..celery_app import app
@@ -39,6 +40,10 @@ def transcribe_audio_bytes(self, user_id: int, job_id: str, audio_bytes: bytes, 
 
     tmp = None
     try:
+        # Decode base64-encoded audio bytes from Celery JSON transport
+        if isinstance(audio_bytes, str):
+            audio_bytes = base64.b64decode(audio_bytes)
+        
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".opus")
         tmp.write(audio_bytes)
         tmp.flush()
@@ -194,23 +199,26 @@ def store_conversation(self, transcription_result: dict):
     
     try:
         db = SessionLocal()
-        conversation = Conversation(
-            user_id=user_id,
-            transcript=extracted_interests,
-            metadata=f"mode={mode},job_id={job_id}",
-        )
-        db.add(conversation)
-        db.commit()
-        conversation_id = conversation.id
-        db.close()
-        
-        logger.info(f"[job_id={job_id}] Conversation stored (id={conversation_id})")
-        
-        return {
-            **transcription_result,
-            "conversation_id": conversation_id,
-        }
+        try:
+            conversation = Conversation(
+                user_id=user_id,
+                transcript=extracted_interests,
+                conversation_metadata=f"mode={mode},job_id={job_id}",
+            )
+            db.add(conversation)
+            db.commit()
+            conversation_id = conversation.id
+            
+            logger.info(f"[job_id={job_id}] Conversation stored (id={conversation_id})")
+            
+            return {
+                **transcription_result,
+                "conversation_id": conversation_id,
+            }
+        finally:
+            db.close()
         
     except Exception as e:
         logger.error(f"[job_id={job_id}] Failed to store conversation: {e}")
         raise
+

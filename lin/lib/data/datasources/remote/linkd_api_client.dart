@@ -303,4 +303,136 @@ class LinkdApiClient {
       rethrow;
     }
   }
+
+  // ==================== CONTACTS ENDPOINTS ====================
+
+  Future<List<Contact>> getContacts({
+    String? event,
+    bool? starred,
+    String? tag,
+    String sort = 'recent',
+    int page = 1,
+    int limit = 50,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '${AppConstants.apiBaseUrl}/contacts/',
+        queryParameters: {
+          if (event != null) 'event': event,
+          if (starred != null) 'starred': starred,
+          if (tag != null) 'tag': tag,
+          'sort': sort,
+          'page': page,
+          'limit': limit,
+        },
+      );
+      final data = response.data['data'] as List;
+      return data.map((c) => Contact.fromJson(c)).toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Contact> getContact(int contactId) async {
+    try {
+      final response = await _dio.get(
+        '${AppConstants.apiBaseUrl}/contacts/$contactId',
+      );
+      return Contact.fromJson(response.data['data']);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Contact> createContact(Map<String, dynamic> data) async {
+    try {
+      final response = await _dio.post(
+        '${AppConstants.apiBaseUrl}/contacts/',
+        data: data,
+      );
+      return Contact.fromJson(response.data['data']);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Contact> updateContact(int contactId, Map<String, dynamic> data) async {
+    try {
+      final response = await _dio.patch(
+        '${AppConstants.apiBaseUrl}/contacts/$contactId',
+        data: data,
+      );
+      return Contact.fromJson(response.data['data']);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> deleteContact(int contactId) async {
+    try {
+      await _dio.delete('${AppConstants.apiBaseUrl}/contacts/$contactId');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Contact> toggleStar(int contactId) async {
+    try {
+      final response = await _dio.post(
+        '${AppConstants.apiBaseUrl}/contacts/$contactId/star',
+      );
+      return Contact.fromJson(response.data['data']);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Contact> markFollowUpComplete(int contactId) async {
+    try {
+      final response = await _dio.post(
+        '${AppConstants.apiBaseUrl}/contacts/$contactId/follow-up-complete',
+      );
+      return Contact.fromJson(response.data['data']);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<Contact>> searchContacts(String query) async {
+    try {
+      final response = await _dio.get(
+        '${AppConstants.apiBaseUrl}/contacts/search',
+        queryParameters: {'q': query},
+      );
+      final data = response.data['data'] as List;
+      return data.map((c) => Contact.fromJson(c)).toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<Contact>> getUpcomingFollowUps() async {
+    try {
+      final response = await _dio.get(
+        '${AppConstants.apiBaseUrl}/contacts/upcoming-follow-ups',
+      );
+      final data = response.data['data'] as List;
+      return data.map((c) => Contact.fromJson(c)).toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // ==================== INSIGHTS ENDPOINTS ====================
+
+  Future<InsightsSummary> getInsightsSummary() async {
+    try {
+      final response = await _dio.get(
+        '${AppConstants.apiBaseUrl}/insights/summary',
+      );
+      return InsightsSummary.fromJson(response.data['data']);
+    } catch (e) {
+      rethrow;
+    }
+  }
 }
