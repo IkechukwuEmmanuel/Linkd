@@ -38,7 +38,11 @@ production (startup fails closed otherwise):
 
 - `DATABASE_URL` — **must point at the non-superuser app role** (see step 4).
 - `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`.
-- `JWT_SECRET_KEY` — strong random value (`python -c "import secrets;print(secrets.token_urlsafe(32))"`).
+- `AUTH_PROVIDER` — `supabase` if the client signs in via Supabase Auth
+  (tokens are verified and bridged to a local integer `users.id`); `local`
+  uses the built-in JWT flow. Firebase Auth is not used.
+- `JWT_SECRET_KEY` — strong random value, required for the `local` provider
+  (`python -c "import secrets;print(secrets.token_urlsafe(32))"`).
 - `ENVIRONMENT=production`.
 - `REDIS_URL` (or `REDIS_HOST`/`REDIS_PORT`).
 - Supabase: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.

@@ -61,9 +61,8 @@ dependencies:
   confetti: ^0.7.0
   shimmer: ^3.0.0
 
-  # Firebase (internally compatible set)
+  # Firebase (auth handled by Supabase, not Firebase Auth)
   firebase_core: ^2.32.0
-  firebase_auth: ^4.16.0
   firebase_messaging: ^14.7.10
   firebase_analytics: ^10.10.7
   firebase_crashlytics: ^3.5.7

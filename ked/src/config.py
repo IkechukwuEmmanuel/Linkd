@@ -18,7 +18,12 @@ class Settings(BaseSettings):
     deepgram_api_key: str
     gemini_api_key: str
     
-    # JWT configuration - REQUIRED for production
+    # Authentication provider: "local" (built-in JWT) or "supabase" (verify
+    # Supabase tokens and bridge to a local user row). Default local keeps the
+    # built-in flow working; production using Supabase Auth sets "supabase".
+    auth_provider: str = "local"
+
+    # JWT configuration - REQUIRED for production (local auth provider)
     jwt_secret_key: str = ""  # MUST be set in production
     jwt_expiration_hours: int = 24
     

@@ -104,7 +104,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         HTTPException: If token is invalid
     """
     token = credentials.credentials
-    user_id = verify_token(token)
+    if settings.auth_provider == "supabase":
+        user_id = _resolve_supabase_user(token)
+    else:
+        user_id = verify_token(token)
     # Bind the user id for Row-Level Security on this request. Runs in the
     # endpoint's execution context so it propagates to the DB session.
     try:
@@ -113,3 +116,56 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except Exception:
         pass
     return user_id
+
+
+def get_or_create_local_user(email: str, db_session) -> int:
+    """Find or create the local users row for a Supabase-authenticated identity.
+
+    Supabase is the auth source of truth; the integer ``users.id`` remains the
+    primary key used across the schema (contacts, personas, RLS, ...). The local
+    row stores no usable password (auth happens at Supabase).
+    """
+    from . import models
+
+    email = (email or "").strip().lower()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Supabase identity is missing an email",
+        )
+    user = db_session.query(models.User).filter(models.User.email == email).first()
+    if user is None:
+        user = models.User(email=email, hashed_password="!supabase-managed!")
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        logger.info(f"[user_id={user.id}] Provisioned local user from Supabase identity")
+    return user.id
+
+
+def _resolve_supabase_user(token: str) -> int:
+    """Verify a Supabase JWT and map it to the local integer user id."""
+    from .supabase_client import SupabaseManager
+    from . import db as _db
+
+    try:
+        client = SupabaseManager.get_client()
+        response = client.auth.get_user(token)
+        if not response or not getattr(response, "user", None):
+            raise ValueError("invalid Supabase token")
+        email = response.user.email
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Supabase token verification failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    session = _db.SessionLocal()
+    try:
+        return get_or_create_local_user(email, session)
+    finally:
+        session.close()

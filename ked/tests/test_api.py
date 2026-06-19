@@ -122,6 +122,23 @@ def test_demo_signin_disabled_by_default(client):
     assert r.status_code == 403
 
 
+def test_supabase_user_bridge_is_idempotent(client):
+    # The Supabase->local bridge should find-or-create one user per email
+    # (case-insensitive), so repeated logins map to the same integer id.
+    import uuid
+    from src.auth import get_or_create_local_user
+    from src import db as _db
+
+    email = f"sb_{uuid.uuid4().hex[:8]}@example.com"
+    session = _db.SessionLocal()
+    try:
+        uid1 = get_or_create_local_user(email, session)
+        uid2 = get_or_create_local_user(email.upper(), session)
+        assert uid1 == uid2
+    finally:
+        session.close()
+
+
 def test_export_my_data(client, auth_headers):
     client.post(
         "/contacts/", json={"name": "Exported Person"}, headers=auth_headers
