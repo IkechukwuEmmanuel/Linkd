@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.ext.declarative import declarative_base
@@ -53,6 +54,108 @@ def init_db():
     logger.info("Database initialization complete")
 
 
+def _split_sql_statements(sql: str) -> list:
+    """Split a SQL script into individual statements on top-level semicolons.
+
+    Unlike a naive ``sql.split(";")``, this respects:
+      - dollar-quoted strings ($$ ... $$ and $tag$ ... $tag$), so PL/pgSQL
+        function/trigger bodies (which contain their own semicolons) stay intact,
+      - single-quoted string literals (with '' escapes),
+      - line comments (-- ...) and block comments (/* ... */).
+
+    Comment-only / blank fragments are dropped so the executor never receives an
+    empty query.
+    """
+    statements = []
+    buf = []
+    i, n = 0, len(sql)
+    in_line_comment = in_block_comment = in_single = False
+    dollar_tag = None  # e.g. "$$" or "$func$"
+
+    while i < n:
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < n else ""
+
+        if in_line_comment:
+            buf.append(ch)
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+        elif in_block_comment:
+            buf.append(ch)
+            if ch == "*" and nxt == "/":
+                buf.append(nxt)
+                i += 2
+                in_block_comment = False
+            else:
+                i += 1
+        elif in_single:
+            buf.append(ch)
+            if ch == "'":
+                if nxt == "'":  # escaped quote
+                    buf.append(nxt)
+                    i += 2
+                    continue
+                in_single = False
+            i += 1
+        elif dollar_tag is not None:
+            if ch == "$" and sql.startswith(dollar_tag, i):
+                buf.append(dollar_tag)
+                i += len(dollar_tag)
+                dollar_tag = None
+            else:
+                buf.append(ch)
+                i += 1
+        elif ch == "-" and nxt == "-":
+            in_line_comment = True
+            buf.append(ch)
+            i += 1
+        elif ch == "/" and nxt == "*":
+            in_block_comment = True
+            buf.append(ch)
+            buf.append(nxt)
+            i += 2
+        elif ch == "'":
+            in_single = True
+            buf.append(ch)
+            i += 1
+        elif ch == "$":
+            # Try to read a dollar-quote opening tag: $ [A-Za-z0-9_]* $
+            j = i + 1
+            while j < n and (sql[j].isalnum() or sql[j] == "_"):
+                j += 1
+            if j < n and sql[j] == "$":
+                dollar_tag = sql[i : j + 1]
+                buf.append(dollar_tag)
+                i = j + 1
+            else:
+                buf.append(ch)
+                i += 1
+        elif ch == ";":
+            stmt = "".join(buf).strip()
+            if not _is_blank_sql(stmt):
+                statements.append(stmt)
+            buf = []
+            i += 1
+        else:
+            buf.append(ch)
+            i += 1
+
+    tail = "".join(buf).strip()
+    if not _is_blank_sql(tail):
+        statements.append(tail)
+    return statements
+
+
+def _is_blank_sql(stmt: str) -> bool:
+    """True if a statement contains no executable SQL (only comments/whitespace)."""
+    if not stmt.strip():
+        return True
+    no_block = re.sub(r"/\*.*?\*/", "", stmt, flags=re.S)
+    no_line = re.sub(r"--[^\n]*", "", no_block)
+    return not no_line.strip()
+
+
 def _execute_migrations():
     """Execute all SQL migration files in the migrations directory."""
     migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
@@ -68,8 +171,8 @@ def _execute_migrations():
             try:
                 with open(filepath, "r") as f:
                     sql_content = f.read()
-                # Split by semicolon and execute each statement
-                statements = [stmt.strip() for stmt in sql_content.split(";") if stmt.strip()]
+                # Dollar-quote-aware split so PL/pgSQL bodies stay intact.
+                statements = _split_sql_statements(sql_content)
                 for statement in statements:
                     conn.execute(text(statement))
                 conn.commit()
