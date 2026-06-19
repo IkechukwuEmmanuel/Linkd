@@ -151,6 +151,57 @@ final submitFeedbackProvider = FutureProvider.autoDispose.family<
   return result;
 });
 
+/// Notifications: returns `{ unread_count, data: [...] }`.
+final notificationsProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final apiClient = ref.watch(apiClientProvider);
+  return apiClient.getNotifications();
+});
+
+// ==================== SEARCH ====================
+
+/// Current search query (debounced updates from the search page).
+final searchQueryProvider = StateProvider.autoDispose<String>((ref) => '');
+
+/// Search results for the current query. Returns empty for very short queries.
+final searchResultsProvider =
+    FutureProvider.autoDispose<List<Contact>>((ref) async {
+  final q = ref.watch(searchQueryProvider).trim();
+  if (q.length < 2) return [];
+  final apiClient = ref.watch(apiClientProvider);
+  return apiClient.searchContacts(q);
+});
+
+// ==================== EVENT MODE ====================
+
+/// Session-level "event mode" — tag every capture with an event name.
+class EventModeState {
+  final bool isActive;
+  final String? eventName;
+  final int captureCount;
+
+  const EventModeState({
+    this.isActive = false,
+    this.eventName,
+    this.captureCount = 0,
+  });
+
+  EventModeState copyWith({
+    bool? isActive,
+    String? eventName,
+    int? captureCount,
+  }) {
+    return EventModeState(
+      isActive: isActive ?? this.isActive,
+      eventName: eventName ?? this.eventName,
+      captureCount: captureCount ?? this.captureCount,
+    );
+  }
+}
+
+final eventModeProvider =
+    StateProvider<EventModeState>((ref) => const EventModeState());
+
 // ==================== UI STATE ====================
 
 /// Selected persona for viewing details

@@ -79,26 +79,65 @@ class SearchAPIClient:
         
         for query, source in search_queries:
             try:
-                # Mock implementation - in production, call Serper API
-                # Example Serper API call:
-                # import aiohttp
-                # async with aiohttp.ClientSession() as session:
-                #     async with session.post(
-                #         f"{self.base_url}/search",
-                #         json={"q": query},
-                #         headers={"X-API-KEY": self.api_key}
-                #     ) as resp:
-                #         data = await resp.json()
-                #         results.extend(data.get("organic", []))
-                
                 logger.debug(f"Searched for: {query}")
-                
-                # Mock: Return empty results (in production, parse Serper response)
-                
+                organic = await self._call_serper(query)
+                for r in organic:
+                    link = r.get("link", "")
+                    results.append(SearchResult(
+                        url=link,
+                        title=r.get("title", ""),
+                        snippet=r.get("snippet", ""),
+                        source=self._detect_source(link) if source == "general" else source,
+                        confidence=0.5,
+                        published_date=r.get("date"),
+                    ))
             except Exception as e:
                 logger.error(f"Error searching for {name}: {str(e)}")
-        
+
         return results
+
+    async def _call_serper(self, query: str) -> list:
+        """Call the Serper.dev search API and return the organic results.
+
+        Returns an empty list (never raises) when the key is missing, the rate
+        limit is hit, or the request fails — callers treat search as best-effort.
+        """
+        if not self.api_key:
+            logger.warning("SERPER_API_KEY not set — skipping web search")
+            return []
+
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/search",
+                    json={"q": query, "num": 5},
+                    headers={
+                        "X-API-KEY": self.api_key,
+                        "Content-Type": "application/json",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=8),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"Serper returned {resp.status} for query: {query}")
+                        return []
+                    data = await resp.json()
+                    return data.get("organic", [])
+        except Exception as e:
+            logger.error(f"Serper API call failed: {e}")
+            return []
+
+    def _detect_source(self, url: str) -> str:
+        """Map a result URL to a source label."""
+        if "linkedin.com" in url:
+            return "linkedin"
+        if "github.com" in url:
+            return "github"
+        if "instagram.com" in url:
+            return "instagram"
+        if "twitter.com" in url or "x.com" in url:
+            return "twitter"
+        return "general"
     
     async def search_linkedin_profile(self, full_name: str, location: Optional[str] = None) -> Optional[str]:
         """Search specifically for LinkedIn profile URL.

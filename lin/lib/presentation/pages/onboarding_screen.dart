@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
 import '../../presentation/providers/app_providers.dart';
@@ -14,11 +19,14 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final linkeLinkedInUrlController = TextEditingController();
+  final AudioRecorder _recorder = AudioRecorder();
   String? selectedFilePath;
+  String? _pitchPath;
 
   @override
   void dispose() {
     linkeLinkedInUrlController.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -77,12 +85,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           icon: Icons.mic,
           title: 'Voice Pitch',
           description: 'Record a 60-second professional pitch',
-          onTap: () {
-            // TODO: Implement audio recording
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Voice pitch recording - coming soon')),
-            );
-          },
+          onTap: () => _recordVoicePitch(context),
         ),
         const SizedBox(height: 16),
         // Choice 2: LinkedIn Profile
@@ -130,6 +133,158 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _recordVoicePitch(BuildContext context) async {
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Microphone access is required to record a voice pitch.'),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    bool isRecording = false;
+    int elapsed = 0;
+    Timer? timer;
+
+    await showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          Future<void> start() async {
+            final dir = await getTemporaryDirectory();
+            _pitchPath =
+                '${dir.path}/pitch_${DateTime.now().millisecondsSinceEpoch}.m4a';
+            await _recorder.start(
+              const RecordConfig(
+                encoder: AudioEncoder.aacLc,
+                bitRate: 32000,
+                sampleRate: 16000,
+                numChannels: 1,
+              ),
+              path: _pitchPath!,
+            );
+            elapsed = 0;
+            timer = Timer.periodic(
+                const Duration(seconds: 1),
+                (_) => setSheetState(() => elapsed++));
+            setSheetState(() => isRecording = true);
+          }
+
+          Future<void> stop() async {
+            timer?.cancel();
+            final path = await _recorder.stop();
+            Navigator.pop(sheetContext);
+            if (path != null) _processVoicePitch(path);
+          }
+
+          final mm = (elapsed ~/ 60).toString().padLeft(2, '0');
+          final ss = (elapsed % 60).toString().padLeft(2, '0');
+
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isRecording ? 'Recording your pitch...' : 'Record your pitch',
+                  style: Theme.of(sheetContext).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tell us about your work, interests, and what you\'re looking for. Aim for ~60 seconds.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 24),
+                Text('$mm:$ss',
+                    style: Theme.of(sheetContext).textTheme.displaySmall),
+                const SizedBox(height: 24),
+                if (!isRecording)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        child: const Text('Cancel'),
+                      ),
+                      FloatingActionButton.large(
+                        heroTag: 'pitch-record',
+                        backgroundColor: AppTheme.accentColor,
+                        onPressed: start,
+                        child: const Icon(Icons.mic,
+                            color: Colors.white, size: 32),
+                      ),
+                    ],
+                  )
+                else
+                  FloatingActionButton.large(
+                    heroTag: 'pitch-stop',
+                    backgroundColor: Colors.red,
+                    onPressed: stop,
+                    child: const Icon(Icons.stop, color: Colors.white),
+                  ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    timer?.cancel();
+  }
+
+  void _processVoicePitch(String filePath) async {
+    ref.read(onboardingStateProvider.notifier).state = OnboardingState(
+      step: OnboardingStep.processing,
+      isProcessing: true,
+      progress: 0,
+    );
+
+    try {
+      final result = await ref.read(uploadVoicePitchProvider(filePath).future);
+      final personasData = result['personas'] as List? ?? [];
+      final personas = personasData
+          .map((p) => Persona(
+                id: p['id'] ?? 0,
+                label: p['label'] ?? 'Unknown',
+                weight: (p['weight'] ?? 1).toDouble(),
+                confidenceScore: (p['confidence'] ?? 0.8).toDouble(),
+                createdAt: DateTime.now(),
+              ))
+          .toList();
+
+      if (mounted) {
+        ref.read(onboardingStateProvider.notifier).state = OnboardingState(
+          step: OnboardingStep.confirmPersonas,
+          generatedPersonas: personas,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ref.read(onboardingStateProvider.notifier).state = OnboardingState(
+          step: OnboardingStep.chooseMethod,
+          error: e.toString(),
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      try {
+        final f = File(filePath);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+    }
   }
 
   void _processLinkedInProfile(String url) async {

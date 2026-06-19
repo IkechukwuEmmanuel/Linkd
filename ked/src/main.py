@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from .routers import onboarding, interactions, feedback, jobs, async_interactions, uploads, ingest, auth, contacts, insights
+from .routers import onboarding, interactions, feedback, jobs, async_interactions, uploads, ingest, auth, contacts, insights, notifications
 from . import db
 from .config import settings
 from .exceptions import LinkdException, to_http_exception
@@ -141,6 +141,7 @@ app.include_router(uploads.router)  # Advanced upload handling with offline supp
 app.include_router(ingest.router)  # Protected ingest endpoint with Supabase auth
 app.include_router(contacts.router)  # Contact CRUD, search, follow-ups
 app.include_router(insights.router)  # Network insights and analytics
+app.include_router(notifications.router)  # Follow-up reminders and system notifications
 
 @app.get("/", tags=["health"])
 def root():

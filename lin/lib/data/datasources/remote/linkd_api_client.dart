@@ -230,6 +230,44 @@ class LinkdApiClient {
     }
   }
 
+  // ==================== INGEST ENDPOINTS (async pipeline) ====================
+
+  /// Upload a recorded audio file to the async ingest pipeline.
+  ///
+  /// Returns the `job_id` to poll via [pollIngestStatus]. The pipeline
+  /// transcribes the audio and creates a Contact, surfacing `contact_id` on the
+  /// status endpoint when done.
+  Future<String?> ingestAudio({
+    required String filePath,
+    required String mode, // "live" or "recap"
+    required int durationSeconds,
+    String? eventName,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(
+        filePath,
+        contentType: DioMediaType('audio', 'mp4'),
+      ),
+      'mode': mode,
+      'duration_seconds': durationSeconds,
+      if (eventName != null && eventName.isNotEmpty) 'event_name': eventName,
+    });
+
+    final response = await _dio.post(
+      '${AppConstants.apiBaseUrl}/ingest/audio',
+      data: formData,
+    );
+    return response.data['job_id'] as String?;
+  }
+
+  /// Poll a single ingest job. Returns `{ job_id, status, contact_id }`.
+  Future<Map<String, dynamic>> pollIngestStatus(String jobId) async {
+    final response = await _dio.get(
+      '${AppConstants.apiBaseUrl}/ingest/status/$jobId',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   // ==================== FEEDBACK ENDPOINTS ====================
 
   Future<Map<String, dynamic>> submitPersonaFeedback({
@@ -398,6 +436,22 @@ class LinkdApiClient {
     }
   }
 
+  /// Fast text-based capture. The backend extracts/enriches asynchronously.
+  Future<void> quickCapture({
+    required String name,
+    required String note,
+    String? eventName,
+  }) async {
+    await _dio.post(
+      '${AppConstants.apiBaseUrl}/contacts/quick-capture',
+      data: {
+        'name': name,
+        'note': note,
+        if (eventName != null && eventName.isNotEmpty) 'event_name': eventName,
+      },
+    );
+  }
+
   Future<List<Contact>> searchContacts(String query) async {
     try {
       final response = await _dio.get(
@@ -421,6 +475,25 @@ class LinkdApiClient {
     } catch (e) {
       rethrow;
     }
+  }
+
+  // ==================== NOTIFICATIONS ENDPOINTS ====================
+
+  /// Returns `{ unread_count, data: [...] }`.
+  Future<Map<String, dynamic>> getNotifications({bool unreadOnly = false}) async {
+    final response = await _dio.get(
+      '${AppConstants.apiBaseUrl}/notifications/',
+      queryParameters: {if (unreadOnly) 'unread_only': true},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> markNotificationRead(int id) async {
+    await _dio.post('${AppConstants.apiBaseUrl}/notifications/$id/read');
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await _dio.post('${AppConstants.apiBaseUrl}/notifications/read-all');
   }
 
   // ==================== INSIGHTS ENDPOINTS ====================

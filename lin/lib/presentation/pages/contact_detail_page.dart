@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
+import '../providers/app_providers.dart';
 
 /// Full-screen contact detail page with relationship intelligence.
 class ContactDetailPage extends ConsumerStatefulWidget {
@@ -78,6 +79,76 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
     if (strength >= 4) return 'Growing';
     if (strength >= 2) return 'New';
     return 'Just Met';
+  }
+
+  // ------------------------------------------------------------- actions ---
+
+  Future<void> _toggleStar() async {
+    try {
+      final updated = await ref.read(apiClientProvider).toggleStar(_contact.id);
+      if (!mounted) return;
+      setState(() => _contact = updated);
+      ref.invalidate(contactsProvider);
+    } catch (e) {
+      _showError('Couldn\'t update star: $e');
+    }
+  }
+
+  Future<void> _markFollowUpComplete() async {
+    try {
+      final updated =
+          await ref.read(apiClientProvider).markFollowUpComplete(_contact.id);
+      if (!mounted) return;
+      setState(() => _contact = updated);
+      ref.invalidate(upcomingFollowUpsProvider);
+      ref.invalidate(contactsProvider);
+    } catch (e) {
+      _showError('Couldn\'t mark complete: $e');
+    }
+  }
+
+  Future<void> _saveChanges() async {
+    try {
+      final updated =
+          await ref.read(apiClientProvider).updateContact(_contact.id, {
+        'name': _nameCtrl.text,
+        'company': _companyCtrl.text,
+        'role': _roleCtrl.text,
+        'email': _emailCtrl.text,
+        'phone': _phoneCtrl.text,
+        'notes': _notesCtrl.text,
+      });
+      if (!mounted) return;
+      setState(() {
+        _contact = updated;
+        _isEditing = false;
+      });
+      ref.invalidate(contactsProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Contact updated!')),
+      );
+    } catch (e) {
+      _showError('Couldn\'t save changes: $e');
+    }
+  }
+
+  Future<void> _deleteContact() async {
+    try {
+      await ref.read(apiClientProvider).deleteContact(_contact.id);
+      ref.invalidate(contactsProvider);
+      ref.invalidate(upcomingFollowUpsProvider);
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } catch (e) {
+      _showError('Couldn\'t delete contact: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -190,9 +261,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                     _contact.isStarred ? Icons.star : Icons.star_border,
                     color: _contact.isStarred ? Colors.amber : Colors.white,
                   ),
-                  onPressed: () {
-                    // Toggle star via API
-                  },
+                  onPressed: _toggleStar,
                 ),
                 IconButton(
                   icon: Icon(_isEditing ? Icons.check : Icons.edit, color: Colors.white),
@@ -324,9 +393,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                                 const SizedBox(width: 8),
                                 if (!_contact.followUpCompleted)
                                   ElevatedButton.icon(
-                                    onPressed: () {
-                                      // Mark follow-up complete via API
-                                    },
+                                    onPressed: _markFollowUpComplete,
                                     icon: const Icon(Icons.check, size: 16),
                                     label: const Text('Mark Done'),
                                     style: ElevatedButton.styleFrom(
@@ -442,13 +509,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () {
-                            // Save via API
-                            setState(() => _isEditing = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Contact updated!')),
-                            );
-                          },
+                          onPressed: _saveChanges,
                           child: const Text('Save Changes'),
                         ),
                       ),
@@ -469,10 +530,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                                 TextButton(
                                   onPressed: () {
                                     Navigator.pop(ctx);
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('${_contact.name} deleted')),
-                                    );
+                                    _deleteContact();
                                   },
                                   child: const Text('Delete', style: TextStyle(color: Colors.red)),
                                 ),

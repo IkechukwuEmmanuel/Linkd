@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from celery import Task
+from sqlalchemy import func
 from ..celery_app import app
 from ..db import SessionLocal
 from ..models import Contact, ContactInteraction, Job, UserPersona
@@ -51,6 +52,60 @@ def create_contact_from_transcript(
     try:
         # Step 1: Extract contact info with Gemini
         contact_info = _extract_contact_info(transcript)
+
+        # Step 1b: Deduplicate — if a contact with the same name already exists
+        # for this user, append an interaction and merge new info instead of
+        # creating a duplicate card.
+        candidate_name = (contact_info.get("name") or "").strip()
+        if candidate_name and candidate_name.lower() != "unknown contact":
+            existing = db.query(Contact).filter(
+                Contact.user_id == user_id,
+                func.lower(Contact.name) == candidate_name.lower(),
+            ).first()
+            if existing:
+                db.add(ContactInteraction(
+                    user_id=user_id,
+                    contact_id=existing.id,
+                    interaction_type="re_capture",
+                    content=transcript[:2000],
+                ))
+                existing.interaction_count = (existing.interaction_count or 1) + 1
+                existing.last_interaction_at = datetime.utcnow()
+                if contact_info.get("company") and not existing.company:
+                    existing.company = contact_info["company"]
+                if contact_info.get("role") and not existing.role:
+                    existing.role = contact_info["role"]
+                if event_name and not existing.event_name:
+                    existing.event_name = event_name
+                merged_interests = list(
+                    set((existing.interests or []) + contact_info.get("interests", []))
+                )
+                existing.interests = merged_interests
+
+                job = db.query(Job).filter(Job.job_id == job_id).first()
+                if job:
+                    job.status = "completed"
+                    job.result = json.dumps(
+                        {"contact_id": existing.id, "merged": True}
+                    )
+                    job.completed_at = datetime.utcnow()
+                db.commit()
+
+                # Surface the merge on the Supabase recording too.
+                try:
+                    from ..supabase_client import SupabaseManager
+                    SupabaseManager.get_client().table("recordings").update(
+                        {"contact_id": existing.id, "status": "completed"}
+                    ).eq("job_id", job_id).execute()
+                except Exception as e:
+                    logger.warning(
+                        f"[job_id={job_id}] Supabase contact_id update (merge) failed: {e}"
+                    )
+
+                logger.info(
+                    f"[job_id={job_id}] Merged into existing contact id={existing.id}"
+                )
+                return {"contact_id": existing.id, "merged": True}
 
         # Step 2: Get user personas for overlap
         personas = db.query(UserPersona).filter(
@@ -116,9 +171,25 @@ def create_contact_from_transcript(
             job.completed_at = datetime.utcnow()
 
         db.commit()
+        contact_id = contact.id
+
+        # Write the contact_id back onto the Supabase recordings row so the
+        # /ingest/status/{job_id} endpoint can report completion to the client.
+        # Quick-capture jobs (job_id="quick-...") have no recordings row, so the
+        # update simply matches zero rows — that is expected and harmless.
+        try:
+            from ..supabase_client import SupabaseManager
+            sb_client = SupabaseManager.get_client()
+            sb_client.table("recordings").update(
+                {"contact_id": contact_id, "status": "completed"}
+            ).eq("job_id", job_id).execute()
+        except Exception as e:
+            logger.warning(
+                f"[job_id={job_id}] Failed to update Supabase recording with contact_id: {e}"
+            )
 
         logger.info(
-            f"[job_id={job_id}] Contact created: id={contact.id}, "
+            f"[job_id={job_id}] Contact created: id={contact_id}, "
             f"name={contact.name}, overlap={overlap_score:.2f}"
         )
 
