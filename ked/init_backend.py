@@ -47,9 +47,10 @@ def main():
     logger.info("\n[Step 3] Testing database connection...")
     try:
         from src import db
+        from sqlalchemy import text
 
         with db.engine.connect() as conn:
-            result = conn.execute("SELECT 1")
+            result = conn.execute(text("SELECT 1"))
             logger.info("✓ Database connection successful")
     except Exception as e:
         logger.error(f"ERROR: Database connection failed: {e}")

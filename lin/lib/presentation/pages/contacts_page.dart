@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
 import '../providers/app_providers.dart';
+import '../providers/auth_provider.dart';
 import 'contact_detail_page.dart';
 
 /// Contacts list page with search, filtering, and quick-capture.

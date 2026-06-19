@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from .config import settings
 
@@ -91,7 +91,7 @@ def verify_token(token: str) -> int:
         )
 
 
-async def get_current_user(credentials: HTTPAuthCredentials = Depends(security)) -> int:
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> int:
     """Dependency to extract and verify user_id from JWT token.
     
     Args:

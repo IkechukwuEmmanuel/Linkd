@@ -10,13 +10,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from src.config import settings
     from src.db import engine
-    
+    from sqlalchemy import text
+
     print("Configuration loaded successfully!")
     print(f"Database URL: {settings.database_url}")
-    
+
     # Try to connect
     with engine.connect() as conn:
-        result = conn.execute("SELECT 1 as test")
+        result = conn.execute(text("SELECT 1 as test"))
         print("✓ Database connection successful!")
         print(f"✓ Connection test result: {result.fetchone()[0]}")
     

@@ -8,19 +8,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:linkd_app/linkd_app.dart';
+import 'package:linkd_app/presentation/providers/auth_provider.dart';
 
 void main() {
   testWidgets('App can be built', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+    // sharedPreferencesProvider intentionally throws unless overridden, so
+    // provide a mock instance (the app is normally initialized in main()).
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
     await tester.pumpWidget(
-      const ProviderScope(
-        child: LinkdApp(),
+      ProviderScope(
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+        child: const LinkdApp(),
       ),
     );
+    await tester.pump();
 
-    // Just verify the app builds without errors
+    // Verify the app builds and renders a MaterialApp without errors.
     expect(find.byType(MaterialApp), findsOneWidget);
   });
 }

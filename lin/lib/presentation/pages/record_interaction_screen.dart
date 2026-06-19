@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
 import '../providers/app_providers.dart';
+import '../providers/auth_provider.dart';
 import 'contact_detail_page.dart';
 
 enum _RecordPhase { idle, recording, processing, error }

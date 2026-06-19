@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -56,7 +56,7 @@ def get_job_status(
 def list_user_jobs(
     user_id: int = Depends(get_current_user),
     status_filter: str = None,  # "pending", "processing", "completed", "failed"
-    limit: int = Field(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=500),
 ):
     """List jobs for a user.
     
