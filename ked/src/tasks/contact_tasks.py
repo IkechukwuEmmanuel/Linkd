@@ -48,6 +48,13 @@ def create_contact_from_transcript(
     logger.info(f"[job_id={job_id}] Creating contact from transcript")
     self.update_state(state="CONTACT_CREATION", meta={"progress": "Extracting contact info..."})
 
+    # Bind RLS context for this task (no-op when the worker uses a privileged role).
+    try:
+        from .. import db as _db
+        _db.set_current_user_id(user_id)
+    except Exception:
+        pass
+
     db = SessionLocal()
     try:
         # Step 1: Extract contact info with Gemini

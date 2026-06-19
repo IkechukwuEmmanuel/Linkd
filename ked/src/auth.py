@@ -104,4 +104,12 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         HTTPException: If token is invalid
     """
     token = credentials.credentials
-    return verify_token(token)
+    user_id = verify_token(token)
+    # Bind the user id for Row-Level Security on this request. Runs in the
+    # endpoint's execution context so it propagates to the DB session.
+    try:
+        from . import db
+        db.set_current_user_id(user_id)
+    except Exception:
+        pass
+    return user_id

@@ -24,6 +24,53 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+# ---------------------------------------------------------------------------
+# Row-Level Security (RLS) request context
+#
+# `current_user_id_var` carries the authenticated user id for the current
+# request/task. On every transaction we copy it into the Postgres GUC
+# `app.current_user_id`, which the RLS policies read. Set via set_current_user_id()
+# (auth dependency for HTTP, task wrapper for Celery). When unset, the GUC is
+# empty and the (missing_ok) policies match no rows — fail-closed, never error.
+#
+# NOTE: a superuser/owner DB role BYPASSES RLS even with FORCE enabled. The app
+# therefore only gains DB-level isolation when it connects as a NON-superuser
+# role (see _apply_rls docstring). The default local role is a superuser, so the
+# app keeps working unchanged; the mechanism is exercised by the isolation test.
+# ---------------------------------------------------------------------------
+import contextvars
+
+current_user_id_var: "contextvars.ContextVar" = contextvars.ContextVar(
+    "current_user_id", default=None
+)
+
+
+def set_current_user_id(user_id):
+    """Bind the current user id for RLS. Returns a token for optional reset."""
+    return current_user_id_var.set(user_id)
+
+
+def reset_current_user_id(token):
+    try:
+        current_user_id_var.reset(token)
+    except Exception:
+        pass
+
+
+@event.listens_for(engine, "begin")
+def _set_rls_user(conn):
+    """At each transaction start, push the request's user id into the GUC."""
+    uid = current_user_id_var.get()
+    val = str(uid) if uid is not None else ""
+    try:
+        # is_local=true -> scoped to this transaction; reset automatically.
+        conn.exec_driver_sql(
+            "SELECT set_config('app.current_user_id', %s, true)", (val,)
+        )
+    except Exception as e:  # never let GUC setup break a transaction
+        logger.debug(f"Could not set app.current_user_id GUC: {e}")
+
+
 # ensure pgvector extension is available when the connection is first created
 @event.listens_for(engine, "connect")
 def connect(dbapi_connection, connection_record):
@@ -182,66 +229,50 @@ def _execute_migrations():
                 conn.rollback()
 
 
+# Tables isolated per-user via RLS. The fail-closed condition uses the
+# missing_ok form of current_setting so an unset/empty GUC yields NULL (matches
+# no rows) instead of raising — important for non-superuser connections.
+_RLS_CONDITION = "user_id = NULLIF(current_setting('app.current_user_id', true), '')::int"
+_RLS_TABLES = [
+    "user_persona",
+    "interest_nodes",
+    "conversations",
+    "jobs",
+    "persona_feedback",
+    "interaction_metrics",
+    "contacts",
+    "contact_interactions",
+    "notifications",
+]
+
+
 def _apply_rls():
-    """Apply row-level security policies.
+    """Apply row-level security policies and FORCE them.
 
-    Note: These are also defined in the migration files, but we can re-apply them here
-    as an extra safety measure.
+    FORCE ROW LEVEL SECURITY makes even the table owner subject to RLS. Note,
+    however, that a *superuser* role still bypasses RLS entirely — so DB-level
+    isolation is only active when the application connects as a NON-superuser
+    role (e.g. a dedicated ``linkd_app`` role with table privileges but no
+    superuser/BYPASSRLS). Background jobs that operate across tenants
+    (reminder_tasks) should keep using a privileged role. App-level
+    ``WHERE user_id = ?`` filtering remains the primary guard; RLS is
+    defense-in-depth.
     """
-    policies = [
-        (
-            "user_persona",
-            "user_isolation_user_persona",
-            "user_id = current_setting('app.current_user_id')::int",
-        ),
-        (
-            "interest_nodes",
-            "user_isolation_interest_nodes",
-            "user_id = current_setting('app.current_user_id')::int",
-        ),
-        (
-            "conversations",
-            "user_isolation_conversations",
-            "user_id = current_setting('app.current_user_id')::int",
-        ),
-        (
-            "jobs",
-            "user_isolation_jobs",
-            "user_id = current_setting('app.current_user_id')::int",
-        ),
-        (
-            "persona_feedback",
-            "user_isolation_persona_feedback",
-            "user_id = current_setting('app.current_user_id')::int",
-        ),
-        (
-            "interaction_metrics",
-            "user_isolation_interaction_metrics",
-            "user_id = current_setting('app.current_user_id')::int",
-        ),
-    ]
-
     with engine.connect() as conn:
-        for table, policy_name, policy_condition in policies:
+        for table in _RLS_TABLES:
+            policy_name = f"user_isolation_{table}"
             try:
-                # Enable RLS on the table
                 conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;"))
-                
-                # Try to drop existing policy first (for idempotency)
-                try:
-                    conn.execute(text(f"DROP POLICY IF EXISTS {policy_name} ON {table};"))
-                except Exception:
-                    pass  # Policy may not exist
-                
-                # Create policy
+                conn.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;"))
+                conn.execute(text(f"DROP POLICY IF EXISTS {policy_name} ON {table};"))
                 conn.execute(
                     text(
                         f"CREATE POLICY {policy_name} ON {table} "
-                        f"USING ({policy_condition});"
+                        f"USING ({_RLS_CONDITION}) WITH CHECK ({_RLS_CONDITION});"
                     )
                 )
                 conn.commit()
-                logger.info(f"Applied RLS policy: {policy_name} on {table}")
+                logger.info(f"Applied + forced RLS policy: {policy_name} on {table}")
             except Exception as e:
                 logger.warning(f"Could not apply RLS policy {policy_name}: {e}")
                 try:
