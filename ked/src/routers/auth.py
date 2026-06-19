@@ -292,3 +292,69 @@ def get_me(
         "success": True,
         "data": _user_to_dict(user),
     }
+
+
+def _row_to_dict(obj) -> dict:
+    """Serialize an ORM row to a JSON-safe dict, skipping embedding vectors."""
+    from sqlalchemy import inspect as sa_inspect
+
+    out = {}
+    for attr in sa_inspect(obj).mapper.column_attrs:
+        key = attr.key
+        if key == "vector":  # large embedding, not user-meaningful in an export
+            continue
+        val = getattr(obj, key)
+        if hasattr(val, "isoformat"):
+            val = val.isoformat()
+        out[key] = val
+    return out
+
+
+@router.get("/me/export")
+def export_my_data(
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
+    """Export all data associated with the current user (GDPR/CCPA portability)."""
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    related = {
+        "personas": models.UserPersona,
+        "interests": models.InterestNode,
+        "conversations": models.Conversation,
+        "jobs": models.Job,
+        "persona_feedback": models.PersonaFeedback,
+        "interaction_metrics": models.InteractionMetric,
+        "contacts": models.Contact,
+        "contact_interactions": models.ContactInteraction,
+        "notifications": models.Notification,
+    }
+    data = {"user": _user_to_dict(user)}
+    for key, model in related.items():
+        rows = db_session.query(model).filter(model.user_id == user_id).all()
+        data[key] = [_row_to_dict(r) for r in rows]
+
+    logger.info(f"[user_id={user_id}] Data export generated")
+    return {"success": True, "data": data}
+
+
+@router.delete("/me")
+def delete_my_account(
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
+    """Permanently delete the current user's account and all associated data.
+
+    Child rows are removed via ON DELETE CASCADE foreign keys.
+    """
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    db_session.query(models.User).filter(models.User.id == user_id).delete()
+    db_session.commit()
+
+    logger.info(f"[user_id={user_id}] Account and all associated data deleted")
+    return {"success": True, "message": "Account and all associated data deleted."}

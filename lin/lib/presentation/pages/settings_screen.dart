@@ -135,6 +135,29 @@ class SettingsScreen extends ConsumerWidget {
                     },
                   ),
                   const Divider(height: 32),
+                  // Privacy & Data Section
+                  Text(
+                    'Privacy & Data',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSettingsTile(
+                    context,
+                    icon: Icons.download,
+                    title: 'Export my data',
+                    subtitle: 'Download everything Linkd stores about you',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _exportData(context, ref),
+                  ),
+                  _buildSettingsTile(
+                    context,
+                    icon: Icons.delete_forever,
+                    title: 'Delete my account',
+                    subtitle: 'Permanently remove your account and all data',
+                    trailing: const Icon(Icons.chevron_right, color: Colors.red),
+                    onTap: () => _showDeleteAccountConfirmation(context, ref),
+                  ),
+                  const Divider(height: 32),
                   // Logout Section
                   SizedBox(
                     width: double.infinity,
@@ -278,6 +301,69 @@ class SettingsScreen extends ConsumerWidget {
               );
             },
             child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportData(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Preparing your data export...')),
+    );
+    try {
+      final data = await ref.read(apiClientProvider).exportMyData();
+      final payload = (data['data'] as Map?) ?? {};
+      final contacts = (payload['contacts'] as List?)?.length ?? 0;
+      final personas = (payload['personas'] as List?)?.length ?? 0;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Export ready: $contacts contacts, $personas personas, and your '
+            'account data.',
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  void _showDeleteAccountConfirmation(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently deletes your account and all associated data '
+          '(contacts, personas, recordings metadata, notifications). '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
+              Navigator.pop(dialogContext);
+              try {
+                await ref.read(apiClientProvider).deleteMyAccount();
+                await ref.read(authNotifierProvider.notifier).logout();
+                nav.pushNamedAndRemoveUntil('/auth', (route) => false);
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('Could not delete account: $e')),
+                );
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),

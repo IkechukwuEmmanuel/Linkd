@@ -103,6 +103,18 @@ class LinkdApiClient {
     }
   }
 
+  /// Export all of the current user's data (GDPR/CCPA portability).
+  Future<Map<String, dynamic>> exportMyData() async {
+    final response =
+        await _dio.get('${AppConstants.apiBaseUrl}/auth/me/export');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// Permanently delete the current user's account and all associated data.
+  Future<void> deleteMyAccount() async {
+    await _dio.delete('${AppConstants.apiBaseUrl}/auth/me');
+  }
+
   // ==================== ONBOARDING ENDPOINTS ====================
 
   Future<Map<String, dynamic>> uploadVoicePitch({

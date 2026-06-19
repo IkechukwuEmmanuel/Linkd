@@ -120,3 +120,35 @@ def test_demo_signin_disabled_by_default(client):
     # DEMO_PASSWORD unset in test env -> demo login disabled.
     r = client.post("/auth/demo-signin")
     assert r.status_code == 403
+
+
+def test_export_my_data(client, auth_headers):
+    client.post(
+        "/contacts/", json={"name": "Exported Person"}, headers=auth_headers
+    )
+    r = client.get("/auth/me/export", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert "user" in data and "contacts" in data
+    assert any(c["name"] == "Exported Person" for c in data["contacts"])
+
+
+def test_delete_my_account(client):
+    import uuid
+
+    email = f"del_{uuid.uuid4().hex[:8]}@example.com"
+    token = client.post(
+        "/auth/signup", json={"email": email, "password": "secret123"}
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    # create some data
+    client.post("/contacts/", json={"name": "Doomed"}, headers=headers)
+    # delete account
+    r = client.delete("/auth/me", headers=headers)
+    assert r.status_code in (200, 204)
+    # the token's user no longer exists -> /auth/me should 404
+    assert client.get("/auth/me", headers=headers).status_code == 404
+    # cannot sign in anymore
+    assert client.post(
+        "/auth/signin", json={"email": email, "password": "secret123"}
+    ).status_code in (400, 401)
