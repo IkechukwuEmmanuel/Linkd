@@ -22,6 +22,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Optional Sentry error tracking (no-op unless SENTRY_DSN is configured).
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.environment,
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+        )
+        logger.info("Sentry error tracking enabled")
+    except Exception as e:
+        logger.warning(f"Sentry init failed: {e}")
+
 # Rate limiter (user-aware) is defined in src/rate_limit.py and imported above.
 
 

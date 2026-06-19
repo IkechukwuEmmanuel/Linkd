@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Encryption (Phase 4)
     fernet_encryption_key: str = ""  # Optional data encryption key
 
+    # Observability (optional). When set, errors are reported to Sentry.
+    sentry_dsn: str = ""
+
     # Demo account (development convenience). MUST be overridden in production.
     demo_email: str = "demo@linkd.app"
     demo_password: str = ""  # empty => demo login disabled unless set

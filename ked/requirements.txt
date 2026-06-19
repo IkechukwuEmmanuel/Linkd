@@ -32,6 +32,7 @@ slowapi==0.1.9
 cryptography==41.0.7
 supabase==2.16.0
 ffmpeg-python==0.2.0
+sentry-sdk[fastapi]==2.19.2
 
 # NOTE: The `ffmpeg-python` package is a Python wrapper.
 # You must also install the system `ffmpeg` binary in your
