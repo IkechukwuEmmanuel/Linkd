@@ -103,6 +103,13 @@ class LinkdApiClient {
     }
   }
 
+  /// Fetch the current user (resolves the local user, incl. via the Supabase
+  /// auth bridge when AUTH_PROVIDER=supabase on the backend).
+  Future<User> getMe() async {
+    final response = await _dio.get('${AppConstants.apiBaseUrl}/auth/me');
+    return User.fromJson(response.data['data'] as Map<String, dynamic>);
+  }
+
   /// Export all of the current user's data (GDPR/CCPA portability).
   Future<Map<String, dynamic>> exportMyData() async {
     final response =

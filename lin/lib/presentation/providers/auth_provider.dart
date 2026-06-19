@@ -3,6 +3,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
+import '../../core/constants/app_constants.dart';
 import '../../domain/entities/entities.dart';
 import '../../data/datasources/remote/linkd_api_client.dart';
 
@@ -86,12 +88,37 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return null;
   }
 
+  /// Persist a Supabase session and resolve the local user via the backend
+  /// bridge (GET /auth/me with the Supabase access token).
+  Future<void> _completeSupabaseSession(supa.AuthResponse res) async {
+    final token = res.session?.accessToken;
+    if (token == null) {
+      throw Exception('Check your email to confirm your account, then sign in.');
+    }
+    await prefs.setString('auth_token', token);
+    final user = await apiClient.getMe();
+    await prefs.setBool('is_authenticated', true);
+    await prefs.setInt('user_id', user.id);
+    state = state.copyWith(
+      user: user,
+      token: token,
+      isLoading: false,
+      isAuthenticated: true,
+    );
+  }
+
   Future<void> signup({
     required String email,
     required String password,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
+      if (AppConstants.useSupabaseAuth) {
+        final res = await supa.Supabase.instance.client.auth
+            .signUp(email: email, password: password);
+        await _completeSupabaseSession(res);
+        return;
+      }
       final response = await apiClient.signup(email: email, password: password);
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
@@ -116,6 +143,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
+      if (AppConstants.useSupabaseAuth) {
+        final res = await supa.Supabase.instance.client.auth
+            .signInWithPassword(email: email, password: password);
+        await _completeSupabaseSession(res);
+        return;
+      }
       final response = await apiClient.signin(email: email, password: password);
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
@@ -157,6 +190,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> logout() async {
     try {
+      if (AppConstants.useSupabaseAuth) {
+        try {
+          await supa.Supabase.instance.client.auth.signOut();
+        } catch (_) {}
+      }
       await apiClient.logout();
       await prefs.remove('is_authenticated');
       await prefs.remove('user_id');

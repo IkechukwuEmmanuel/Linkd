@@ -7,6 +7,17 @@ class AppConstants {
     'API_BASE_URL',
     defaultValue: 'http://localhost:8000',
   );
+
+  // Supabase Auth (optional). Provide at build time:
+  //   --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+  // When both are present, the app authenticates via Supabase Auth; otherwise
+  // it falls back to the backend's built-in (local JWT) auth.
+  static const String supabaseUrl =
+      String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+  static const String supabaseAnonKey =
+      String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+  static bool get useSupabaseAuth =>
+      supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
   static const Duration apiTimeout = Duration(seconds: 30);
 
   // Firebase Configuration

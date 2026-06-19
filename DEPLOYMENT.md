@@ -110,12 +110,19 @@ Health check: `GET /health` returns `{"status":"healthy","database":"ok"}`.
 ```bash
 cd lin
 flutter pub get
-flutter build apk --dart-define=API_BASE_URL=https://api.yourdomain.com   # HTTPS
+flutter build apk \
+  --dart-define=API_BASE_URL=https://api.yourdomain.com \
+  --dart-define=SUPABASE_URL=https://<project>.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=<anon/publishable key>
 # or flutter build ios / appbundle
 ```
 
-Provide a real `firebase_options.dart` (the committed one has placeholders) and
-configure the Firebase project for auth/messaging/analytics/crashlytics.
+Auth: when `SUPABASE_URL` + `SUPABASE_ANON_KEY` are provided, the client signs
+in via **Supabase Auth** and sends the Supabase token to the backend (set
+`AUTH_PROVIDER=supabase` there). Without them it falls back to the built-in
+local-JWT flow. Firebase Auth is not used. Firebase is only initialized for
+messaging/analytics if you configure it (`firebase_options.dart` has
+placeholders) — otherwise it is a harmless no-op.
 
 ## 8. CI
 
