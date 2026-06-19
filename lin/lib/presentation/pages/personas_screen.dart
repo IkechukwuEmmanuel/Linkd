@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
+import '../../domain/entities/entities.dart';
 import '../../presentation/providers/app_providers.dart';
 
 
@@ -70,7 +71,7 @@ class PersonasScreen extends ConsumerWidget {
 }
 
 class PersonaCard extends ConsumerWidget {
-  final persona;
+  final Persona persona;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -175,7 +176,7 @@ class PersonaCard extends ConsumerWidget {
                       minHeight: 8,
                       backgroundColor: AppTheme.borderColor,
                       valueColor: AlwaysStoppedAnimation(
-                        _getWeightColor(persona.weight),
+                        _getWeightColor(persona.weight.toInt()),
                       ),
                     ),
                   ),

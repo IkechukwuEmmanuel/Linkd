@@ -1,4 +1,4 @@
-/// Riverpod providers for authentication state management
+// Riverpod providers for authentication state management
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';

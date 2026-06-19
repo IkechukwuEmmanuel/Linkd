@@ -1,4 +1,4 @@
-/// Linkd API Client - handles all HTTP requests to backend
+// Linkd API Client - handles all HTTP requests to backend
 
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,8 +7,8 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/logger.dart';
 
 class LinkdApiClient {
-  late Dio _dio;
-  late SharedPreferences _prefs;
+  final Dio _dio;
+  final SharedPreferences _prefs;
 
   LinkdApiClient(this._dio, this._prefs) {
     _setupInterceptors();

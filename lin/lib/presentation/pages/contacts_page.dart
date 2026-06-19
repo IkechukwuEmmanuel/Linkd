@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
-import '../providers/app_providers.dart';
 import '../providers/auth_provider.dart';
 import 'contact_detail_page.dart';
 
@@ -269,7 +268,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
             width: 120,
             height: 120,
             decoration: BoxDecoration(
-              color: AppTheme.accentColor.withOpacity(0.1),
+              color: AppTheme.accentColor.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.people_outline,
@@ -390,7 +389,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: overlapColor.withOpacity(0.12),
+                  color: overlapColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -471,6 +470,8 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                         return;
                       }
                       setDialogState(() => saving = true);
+                      // Capture messenger before the async gap.
+                      final messenger = ScaffoldMessenger.of(context);
                       try {
                         await ref.read(apiClientProvider).quickCapture(
                               name: nameController.text.trim(),
@@ -479,7 +480,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                             );
                         if (dialogContext.mounted) Navigator.pop(dialogContext);
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             const SnackBar(
                                 content: Text(
                                     'Contact saved — processing in background...')),

@@ -85,7 +85,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           icon: Icons.mic,
           title: 'Voice Pitch',
           description: 'Record a 60-second professional pitch',
-          onTap: () => _recordVoicePitch(context),
+          onTap: () => _recordVoicePitch(),
         ),
         const SizedBox(height: 16),
         // Choice 2: LinkedIn Profile
@@ -135,20 +135,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  Future<void> _recordVoicePitch(BuildContext context) async {
+  Future<void> _recordVoicePitch() async {
+    final messenger = ScaffoldMessenger.of(context);
     final status = await Permission.microphone.request();
+    if (!mounted) return;
     if (!status.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'Microphone access is required to record a voice pitch.'),
-          ),
-        );
-      }
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Microphone access is required to record a voice pitch.'),
+        ),
+      );
       return;
     }
-    if (!mounted) return;
 
     bool isRecording = false;
     int elapsed = 0;
@@ -183,7 +182,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           Future<void> stop() async {
             timer?.cancel();
             final path = await _recorder.stop();
-            Navigator.pop(sheetContext);
+            if (sheetContext.mounted) Navigator.pop(sheetContext);
             if (path != null) _processVoicePitch(path);
           }
 
@@ -244,6 +243,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   void _processVoicePitch(String filePath) async {
+    final messenger = ScaffoldMessenger.of(context);
     ref.read(onboardingStateProvider.notifier).state = OnboardingState(
       step: OnboardingStep.processing,
       isProcessing: true,
@@ -275,7 +275,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           step: OnboardingStep.chooseMethod,
           error: e.toString(),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
       }
@@ -288,6 +288,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   void _processLinkedInProfile(String url) async {
+    final messenger = ScaffoldMessenger.of(context);
     ref.read(onboardingStateProvider.notifier).state = OnboardingState(
       step: OnboardingStep.processing,
       isProcessing: true,
@@ -320,7 +321,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           step: OnboardingStep.chooseMethod,
           error: e.toString(),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
       }

@@ -1,4 +1,4 @@
-/// Riverpod providers for app data and operations
+// Riverpod providers for app data and operations
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/entities.dart';

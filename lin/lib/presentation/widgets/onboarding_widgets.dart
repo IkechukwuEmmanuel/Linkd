@@ -38,7 +38,7 @@ class _HeadlineOverlayState extends ConsumerState<HeadlineOverlay> with SingleTi
     return FadeTransition(
       opacity: _ctrl,
       child: Container(
-        color: AppTheme.surfaceColor.withOpacity(0.95),
+        color: AppTheme.surfaceColor.withValues(alpha: 0.95),
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(28.0),
@@ -186,7 +186,7 @@ class InsightPanel extends ConsumerWidget {
           decoration: BoxDecoration(
             color: AppTheme.surfaceColor,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
           ),
           child: Row(
             children: [
@@ -194,7 +194,7 @@ class InsightPanel extends ConsumerWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.12),
+                  color: AppTheme.primaryColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.lightbulb, color: AppTheme.primaryColor),

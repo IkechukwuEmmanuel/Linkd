@@ -186,9 +186,9 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                             width: 72,
                             height: 72,
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
+                              color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
                             ),
                             child: Center(
                               child: Text(
@@ -222,7 +222,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                                         .where((s) => s != null)
                                         .join(' at '),
                                     style: TextStyle(
-                                      color: Colors.white.withOpacity(0.85),
+                                      color: Colors.white.withValues(alpha: 0.85),
                                       fontSize: 14,
                                     ),
                                   ),
@@ -231,12 +231,12 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Row(
                                       children: [
-                                        Icon(Icons.event, size: 14, color: Colors.white.withOpacity(0.7)),
+                                        Icon(Icons.event, size: 14, color: Colors.white.withValues(alpha: 0.7)),
                                         const SizedBox(width: 4),
                                         Text(
                                           _contact.eventName!,
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.7),
+                                            color: Colors.white.withValues(alpha: 0.7),
                                             fontSize: 12,
                                           ),
                                         ),
@@ -366,7 +366,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
                         decoration: BoxDecoration(
                           color: const Color(0xFFF0F4FF),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.15)),
+                          border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.15)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -560,9 +560,9 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: overlapColor.withOpacity(0.08),
+        color: overlapColor.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: overlapColor.withOpacity(0.2)),
+        border: Border.all(color: overlapColor.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -570,7 +570,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: overlapColor.withOpacity(0.15),
+              color: overlapColor.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
             child: Center(
@@ -662,7 +662,7 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

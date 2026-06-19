@@ -116,7 +116,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         side: const BorderSide(color: AppTheme.borderColor),
       ),
       leading: CircleAvatar(
-        backgroundColor: AppTheme.accentColor.withOpacity(0.15),
+        backgroundColor: AppTheme.accentColor.withValues(alpha: 0.15),
         child: Text(
           c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
           style: const TextStyle(

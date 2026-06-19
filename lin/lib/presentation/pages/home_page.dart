@@ -252,7 +252,7 @@ class HomePage extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.accentColor.withOpacity(0.1),
+        color: AppTheme.accentColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -360,7 +360,7 @@ class HomePage extends ConsumerWidget {
                         color: AppTheme.surfaceColor,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                            color: AppTheme.accentColor.withOpacity(0.3)),
+                            color: AppTheme.accentColor.withValues(alpha: 0.3)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -449,13 +449,13 @@ class HomePage extends ConsumerWidget {
         const SizedBox(height: 2),
         Text(label,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.7), fontSize: 12)),
+                color: Colors.white.withValues(alpha: 0.7), fontSize: 12)),
       ],
     );
   }
 
   Widget _divider() =>
-      Container(width: 1, height: 36, color: Colors.white.withOpacity(0.15));
+      Container(width: 1, height: 36, color: Colors.white.withValues(alpha: 0.15));
 
   // ----------------------------------------------------- recent contacts ---
 
@@ -542,7 +542,7 @@ class HomePage extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: overlapColor.withOpacity(0.12),
+                color: overlapColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text('$pct%',
@@ -712,7 +712,7 @@ class HomePage extends ConsumerWidget {
         ),
         if (!tour.signupCompleted && memIndex >= 1) ...[
           Positioned.fill(
-              child: Container(color: Colors.black.withOpacity(0.35))),
+              child: Container(color: Colors.black.withValues(alpha: 0.35))),
           const Center(child: SignupGateOverlay()),
         ],
         if (tour.signupCompleted)
