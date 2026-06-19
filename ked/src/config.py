@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator, model_validator
 
 
 class Settings(BaseSettings):
@@ -61,13 +61,27 @@ class Settings(BaseSettings):
     # Encryption (Phase 4)
     fernet_encryption_key: str = ""  # Optional data encryption key
 
-    @field_validator('jwt_secret_key')
-    @classmethod
-    def validate_jwt_secret(cls, v, info):
-        env = info.data.get('environment', 'development') if info.data else 'development'
-        if not v and env != 'development':
-            raise ValueError('jwt_secret_key must be set in non-development environments')
-        return v or 'dev-secret-key-change-me'
+    # Demo account (development convenience). MUST be overridden in production.
+    demo_email: str = "demo@linkd.app"
+    demo_password: str = ""  # empty => demo login disabled unless set
+
+    @model_validator(mode='after')
+    def _validate_production_secrets(self):
+        """Fail closed in non-development environments.
+
+        Runs after all fields are populated (unlike the previous per-field
+        validator, which could not see `environment` and so never fired).
+        """
+        if self.environment != 'development':
+            if not self.jwt_secret_key:
+                raise ValueError(
+                    'JWT_SECRET_KEY must be set in non-development environments'
+                )
+        # Provide a clearly-marked dev fallback only in development.
+        if not self.jwt_secret_key:
+            self.jwt_secret_key = 'dev-secret-key-change-me'
+        return self
+
 
 settings = Settings()  # loads from .env by default
 

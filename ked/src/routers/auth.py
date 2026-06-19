@@ -18,6 +18,7 @@ from passlib.context import CryptContext
 
 from .. import models, db
 from ..auth import create_access_token, get_current_user
+from ..config import settings
 from ..exceptions import ValidationError, UnauthorizedError
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-DEMO_EMAIL = "demo@linkd.app"
-DEMO_PASSWORD = "linkd-demo-2024"
+# Demo account is configured via settings (env). DEMO_PASSWORD is empty by
+# default, which disables demo login unless explicitly set — no hardcoded creds.
+DEMO_EMAIL = settings.demo_email
+DEMO_PASSWORD = settings.demo_password
 
 
 # ============================================================================
@@ -186,6 +189,13 @@ def demo_signin(
     Returns:
         AuthResponse with demo user info and JWT token
     """
+    # Demo login is disabled unless a demo password is explicitly configured.
+    if not DEMO_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo login is disabled.",
+        )
+
     # Check if demo user exists
     user = db_session.query(models.User).filter(
         models.User.email == DEMO_EMAIL

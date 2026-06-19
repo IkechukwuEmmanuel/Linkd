@@ -1,6 +1,12 @@
 class AppConstants {
   // API Configuration
-  static const String apiBaseUrl = 'http://localhost:8000';
+  // Override at build/run time, e.g.:
+  //   flutter run --dart-define=API_BASE_URL=https://api.yourdomain.com
+  // Use HTTPS in production. Defaults to localhost for development.
+  static const String apiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:8000',
+  );
   static const Duration apiTimeout = Duration(seconds: 30);
 
   // Firebase Configuration
