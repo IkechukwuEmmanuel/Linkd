@@ -3,6 +3,7 @@ import re
 import google.genai
 from deepgram import DeepgramClient
 from ..config import settings
+from ..resilience import retry_call
 
 logger = logging.getLogger(__name__)
 
@@ -64,15 +65,18 @@ def transcribe_audio(file_path: str, diarize: bool = False) -> dict:
     try:
         with open(file_path, "rb") as f:
             source = {"buffer": f, "mimetype": "audio/wav"}
-            response = dg_client.transcription.pre_recorded(
-                source,
-                {
-                    "model": "nova-2",
-                    "diarize": diarize,
-                    "smart_format": True,
-                    "punctuate": True,
-                    "entities": True,
-                },
+            response = retry_call(
+                lambda: dg_client.transcription.pre_recorded(
+                    source,
+                    {
+                        "model": "nova-2",
+                        "diarize": diarize,
+                        "smart_format": True,
+                        "punctuate": True,
+                        "entities": True,
+                    },
+                ),
+                label="deepgram.pre_recorded",
             )
         logger.info(f"Deepgram transcription completed (diarize={diarize}, model=nova-2)")
         return response

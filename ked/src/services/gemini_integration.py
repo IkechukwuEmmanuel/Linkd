@@ -10,11 +10,24 @@ Provides centralized Gemini API access for:
 import logging
 import google.genai as genai
 from ..config import settings
+from ..resilience import retry_call
 
 logger = logging.getLogger(__name__)
 
+
+def _build_client():
+    """Build the Gemini client with a request timeout when supported."""
+    try:
+        return genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=genai.types.HttpOptions(timeout=30_000),  # ms
+        )
+    except Exception:  # older/newer SDK without http_options timeout
+        return genai.Client(api_key=settings.gemini_api_key)
+
+
 # Initialize new GenAI client
-genai_client = genai.Client(api_key=settings.gemini_api_key)
+genai_client = _build_client()
 
 
 def get_gemini_client():
@@ -38,17 +51,20 @@ async def generate_content(prompt: str, max_tokens: int = 500, temperature: floa
         Generated text response
     """
     try:
-        response = genai_client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
+        response = retry_call(
+            lambda: genai_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                ),
             ),
+            label="gemini.generate_content",
         )
-        
+
         return response.text
-    
+
     except Exception as e:
         logger.error(f"Gemini generation failed: {e}")
         raise
@@ -65,9 +81,12 @@ def embed_text(text: str, model: str = "text-embedding-004") -> list:
         List of embeddings (padded to 1536)
     """
     try:
-        response = genai_client.models.embed_content(
-            model=f"models/{model}",
-            content=text,
+        response = retry_call(
+            lambda: genai_client.models.embed_content(
+                model=f"models/{model}",
+                content=text,
+            ),
+            label="gemini.embed_content",
         )
         
         embedding = response.embeddings[0].values if hasattr(response, 'embeddings') else response.embedding

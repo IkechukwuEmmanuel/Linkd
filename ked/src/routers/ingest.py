@@ -15,8 +15,10 @@ import tempfile
 import subprocess
 import os
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request
 from pydantic import BaseModel, Field
+
+from ..rate_limit import limiter, EXPENSIVE_LIMIT
 
 # Auth: use the local JWT dependency (integer user_id) so recordings and the
 # downstream contact-creation pipeline share the same integer user identity as
@@ -69,7 +71,9 @@ class IngestResponse(BaseModel):
     summary="Ingest audio data",
     description="Upload and process audio data. Requires Supabase JWT authentication.",
 )
+@limiter.limit(EXPENSIVE_LIMIT)
 async def ingest_audio(
+    request: Request,
     file: UploadFile = File(..., description="Audio file (WAV, MP3, OGG)"),
     mode: str = Form("recap"),
     duration_seconds: int = Form(...),

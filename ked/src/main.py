@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from .rate_limit import limiter
 
 from .routers import onboarding, interactions, feedback, jobs, async_interactions, uploads, ingest, auth, contacts, insights, notifications
 from . import db
@@ -21,8 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiter (user-aware) is defined in src/rate_limit.py and imported above.
 
 
 @asynccontextmanager
@@ -57,8 +57,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# Add rate limiter to app
+# Add rate limiter to app + handle limit-exceeded with a clean 429 response
 app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware
 if settings.cors_origins:
