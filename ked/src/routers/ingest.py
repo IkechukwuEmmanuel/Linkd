@@ -370,10 +370,20 @@ async def delete_recording(
         
         record = records[0]
         
-        # Delete from storage
+        # Delete from storage. Audio is uploaded to the `interactions` bucket
+        # (source-of-truth, see the ingest upload path), so deletes must target
+        # the same bucket. Reconstruct the full object key — the upload used
+        # f"{user_id}/recordings/{recording_id}.{ext}", so the public URL ends
+        # with that whole path after the bucket name. Taking only the last URL
+        # segment would drop the "{user_id}/recordings/" prefix and no-op.
         if record.get("storage_url"):
-            storage_path = record["storage_url"].split("/")[-1]
-            await storage.delete_file(bucket="recordings", path=storage_path)
+            storage_url = record["storage_url"]
+            marker = "/interactions/"
+            if marker in storage_url:
+                storage_path = storage_url.split(marker, 1)[1].split("?", 1)[0]
+            else:
+                storage_path = storage_url.split("/")[-1]
+            await storage.delete_file(bucket="interactions", path=storage_path)
         
         # Delete from database
         db.client.table("recordings").delete().eq(
