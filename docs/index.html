@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Linkd — Remember everyone worth remembering</title>
+  <meta name="description" content="Linkd turns the conversations you have into a memory you can actually use — so the people who matter don't slip away. Join the waitlist." />
+
+  <!-- Open Graph / social preview -->
+  <meta property="og:title" content="Linkd — Remember everyone worth remembering" />
+  <meta property="og:description" content="The right introduction is usually someone you've already met. Linkd helps you remember." />
+  <meta property="og:type" content="website" />
+
+  <!-- Fonts: Fraunces (display serif) + Inter (body sans) — matches the Linkd app -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#waitlist">Skip to waitlist</a>
+
+  <main>
+    <!-- ============================ HERO ============================ -->
+    <section class="hero" aria-labelledby="hero-heading">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Linkd · relationship memory for professionals</p>
+          <h1 id="hero-heading">
+            The right introduction is usually
+            <span class="serif-emph">someone you've already met.</span>
+          </h1>
+          <p class="lede">
+            You meet people constantly — and the details fade within weeks.
+            Linkd turns your conversations into a memory you can actually use,
+            so the people who matter don't slip away.
+          </p>
+
+          <!-- Hero waitlist form (email + qualifying question) -->
+          <form id="waitlist" class="signup" novalidate>
+            <div class="field">
+              <label for="email">Email</label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                inputmode="email"
+                autocomplete="email"
+                placeholder="you@work.com"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="role">What brings you here?</label>
+              <select id="role" name="role">
+                <option value="" selected disabled hidden>Choose one…</option>
+                <option>Founder</option>
+                <option>Investor</option>
+                <option>Sales</option>
+                <option>Recruiter</option>
+                <option>Student</option>
+                <option>Consultant</option>
+                <option>Event Organizer</option>
+                <option>Community Leader</option>
+                <option>Other</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn-primary" data-default-label="Join the waitlist">
+              Join the waitlist
+            </button>
+
+            <p class="form-status" data-status role="status" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <!-- Signature element: a Linkd relationship card, built in HTML/CSS -->
+        <div class="hero-card-stage" aria-hidden="false">
+          <figure class="memory-card" id="memoryCard">
+            <figcaption class="sr-only">
+              Example Linkd relationship card showing a kept note about a contact
+              and the shared ground between you.
+            </figcaption>
+            <p class="card-meta">kept note · sf climate week</p>
+            <p class="card-name">Amara Osei</p>
+            <p class="card-sub">Co-founder, tidal carbon startup</p>
+
+            <div class="shared-ground">
+              <span class="sg-label">shared ground</span>
+              <div class="thread">
+                <span class="node">you</span>
+                <span class="thread-line" aria-hidden="true"></span>
+                <span class="node">amara</span>
+              </div>
+              <p class="sg-text">both backing early ocean-carbon teams</p>
+            </div>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= PROBLEM ========================== -->
+    <section class="band" aria-labelledby="problem-heading">
+      <div class="wrap narrow">
+        <h2 id="problem-heading">Your network is bigger than your memory.</h2>
+        <p>
+          The details decay fast. A week after a good conversation, you've lost
+          the specifics — what they're building, what they needed, why it
+          mattered that you two met.
+        </p>
+        <p>
+          So when the moment finally arrives to make the connection — the
+          investor for a friend's round, the hire for a former colleague, the
+          person who's been where you're headed — you can't remember who fits.
+          The value was always there. It just wasn't in reach.
+        </p>
+      </div>
+    </section>
+
+    <!-- ====================== THREE STAGES ======================= -->
+    <section class="band stages" aria-labelledby="stages-heading">
+      <div class="wrap">
+        <h2 id="stages-heading">A relationship has three moments. Linkd is there for each.</h2>
+        <ol class="stage-list">
+          <li class="stage">
+            <span class="stage-num">01</span>
+            <h3>Before you meet</h3>
+            <p>See who in your network is worth reaching out to before you ever walk into the room.</p>
+          </li>
+          <li class="stage">
+            <span class="stage-num">02</span>
+            <h3>When you meet</h3>
+            <p>Record a quick voice note after a conversation; Linkd turns it into a clean, structured profile.</p>
+          </li>
+          <li class="stage">
+            <span class="stage-num">03</span>
+            <h3>After you meet</h3>
+            <p>Get a nudge — and the context — to follow up while it still matters.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ======================= CLOSING CTA ======================= -->
+    <section class="band closing" aria-labelledby="closing-heading">
+      <div class="wrap narrow">
+        <h2 id="closing-heading">Be early.</h2>
+        <p>Linkd is opening access gradually. Leave your email and we'll reach out when it's your turn.</p>
+
+        <form id="waitlist-closing" class="signup signup-compact" novalidate>
+          <div class="field">
+            <label for="email-closing" class="sr-only">Email</label>
+            <input
+              type="email"
+              id="email-closing"
+              name="email"
+              inputmode="email"
+              autocomplete="email"
+              placeholder="you@work.com"
+              required
+            />
+          </div>
+          <button type="submit" class="btn-primary" data-default-label="Join the waitlist">
+            Join the waitlist
+          </button>
+          <p class="form-status" data-status role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <span class="wordmark">Linkd</span>
+      <span class="copyright">© <span id="year"></span> Linkd</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
