@@ -14,19 +14,26 @@ from ..services import deepgram_integration
 from ..db import SessionLocal
 from ..models import Conversation, InteractionMetric
 from ..supabase_client import SupabaseManager
-from .contact_tasks import create_contact_from_transcript
+from .contact_tasks import create_contact_from_transcript, _mark_job_failed
 
 logger = logging.getLogger(__name__)
 
 
 class TranscriptionTask(Task):
     """Base task class with shared error handling."""
-    
+
     autoretry_for = (Exception,)
     retry_kwargs = {"max_retries": 5}
     retry_backoff = True
     retry_backoff_max = 600  # 10 minutes max
     retry_jitter = True
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """After retries are exhausted, surface a clear failure to the client."""
+        job_id = (kwargs or {}).get("job_id")
+        if not job_id and args and len(args) > 1:
+            job_id = args[1]
+        _mark_job_failed(job_id, f"transcription failed: {exc}")
 
 
 @app.task(bind=True, base=TranscriptionTask, name="src.tasks.transcription_tasks.transcribe_audio_bytes")

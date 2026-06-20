@@ -20,12 +20,13 @@ def rate_limit_key(request: Request) -> str:
     auth = request.headers.get("Authorization", "")
     if auth.lower().startswith("bearer "):
         token = auth.split(" ", 1)[1].strip()
-        try:
-            from .auth import verify_token
+        # Stable per-user key decoded from the Supabase JWT (no network call,
+        # no signature check — bucketing only). Falls back to IP if unparseable.
+        from .auth import supabase_user_key
 
-            return f"user:{verify_token(token)}"
-        except Exception:
-            pass
+        key = supabase_user_key(token)
+        if key:
+            return key
     return get_remote_address(request)
 
 

@@ -44,20 +44,38 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Build release APK
+      - name: Build per-ABI release APKs
         run: |
           API_URL="${{ github.event.inputs.api_base_url || vars.API_BASE_URL }}"
+          # --split-per-abi produces one lean APK per architecture instead of a
+          # single universal APK bundling every ABI's native libs.
           if [ -n "$API_URL" ]; then
             echo "Building with API_BASE_URL=$API_URL"
-            flutter build apk --release --dart-define=API_BASE_URL="$API_URL"
+            flutter build apk --release --split-per-abi --dart-define=API_BASE_URL="$API_URL"
           else
             echo "Building with compiled-in default API_BASE_URL"
-            flutter build apk --release
+            flutter build apk --release --split-per-abi
           fi
+          echo "Built APKs:" && ls -1 build/app/outputs/flutter-apk/*.apk
 
-      - name: Upload APK artifact
+      # Upload each ABI as its own artifact. Most modern phones are arm64-v8a.
+      - name: Upload arm64-v8a APK (most modern devices)
         uses: actions/upload-artifact@v4
         with:
-          name: linkd-release-apk
-          path: lin/build/app/outputs/flutter-apk/app-release.apk
+          name: linkd-arm64-v8a
+          path: lin/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
+
+      - name: Upload armeabi-v7a APK (older 32-bit devices)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkd-armeabi-v7a
+          path: lin/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          if-no-files-found: error
+
+      - name: Upload x86_64 APK (emulators)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkd-x86_64
+          path: lin/build/app/outputs/flutter-apk/app-x86_64-release.apk
           if-no-files-found: error

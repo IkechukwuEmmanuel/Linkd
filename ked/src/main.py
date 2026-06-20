@@ -76,16 +76,17 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Add CORS middleware
-if settings.cors_origins:
+# Add CORS middleware (origins parsed from CORS_ORIGINS — comma-separated or JSON)
+_cors_origins = settings.cors_origins_list
+if _cors_origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    logger.info(f"CORS enabled for origins: {settings.cors_origins}")
+    logger.info(f"CORS enabled for origins: {_cors_origins}")
 
 
 # Middleware to attach correlation_id and request logging

@@ -1,0 +1,11 @@
+# API process (FastAPI/uvicorn). Install with:  pip install -r requirements-api.txt
+#
+# The API dispatches Celery tasks by NAME (send_task), so it does NOT import the
+# worker task graph and does NOT need the scraper/browser deps.
+-r requirements-common.txt
+
+uvicorn[standard]==0.24.0
+slowapi==0.1.9
+python-multipart==0.0.6
+PyJWT==2.9.0
+sentry-sdk[fastapi]==2.19.2

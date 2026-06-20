@@ -20,11 +20,46 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+def _mark_job_failed(job_id: str, reason: str):
+    """Surface a terminal failure to the client: mark the local Job and the
+    Supabase recording row as failed so polling endpoints stop reporting
+    'processing' forever."""
+    if not job_id:
+        return
+    try:
+        s = SessionLocal()
+        try:
+            job = s.query(Job).filter(Job.job_id == job_id).first()
+            if job:
+                job.status = "failed"
+                job.error_message = reason[:1000]
+                job.completed_at = datetime.utcnow()
+                s.commit()
+        finally:
+            s.close()
+    except Exception as e:
+        logger.warning(f"[job_id={job_id}] Could not mark local job failed: {e}")
+    try:
+        from ..supabase_client import SupabaseManager
+        SupabaseManager.get_client().table("recordings").update(
+            {"status": "failed"}
+        ).eq("job_id", job_id).execute()
+    except Exception as e:
+        logger.warning(f"[job_id={job_id}] Could not mark recording failed: {e}")
+
+
 class ContactTask(Task):
     """Base task for contact creation."""
     autoretry_for = (Exception,)
     retry_kwargs = {"max_retries": 3}
     retry_backoff = True
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """Called after retries are exhausted — record a clear failure state."""
+        job_id = kwargs.get("job_id") if kwargs else None
+        if not job_id and args and len(args) > 1:
+            job_id = args[1]
+        _mark_job_failed(job_id, f"contact creation failed: {exc}")
 
 
 @app.task(bind=True, base=ContactTask, name="src.tasks.contact_tasks.create_contact_from_transcript")
@@ -120,8 +155,8 @@ def create_contact_from_transcript(
         ).all()
         persona_labels = [p.label for p in personas]
 
-        # Step 3: Compute overlap
-        overlap_result = _compute_overlap(contact_info, persona_labels)
+        # Step 3: Compute overlap (pgvector ranks against the PEP, Gemini explains)
+        overlap_result = _compute_overlap(user_id, contact_info, persona_labels)
 
         # Step 4: Generate follow-up draft
         follow_up = _generate_follow_up(contact_info, overlap_result)
@@ -260,11 +295,98 @@ Return ONLY valid JSON."""
         return {"name": "Unknown Contact", "interests": [], "opportunities": []}
 
 
-def _compute_overlap(contact_info: dict, persona_labels: list) -> dict:
-    """Compute overlap between contact interests and user personas."""
+def _compute_overlap(user_id: int, contact_info: dict, persona_labels: list) -> dict:
+    """Compute overlap between a contact and the user's Personal Enrichment Profile.
+
+    Hybrid strategy:
+      1. pgvector RANKS — embed the contact's interests and compare against the
+         user's persona vectors (``compute_persona_matches``) to get the matched
+         personas and a real cosine-similarity score.
+      2. Gemini EXPLAINS — turn the top matches into 2-4 human "overlap points".
+
+    Falls back to a pure-LLM overlap if embeddings/pgvector are unavailable (e.g.
+    personas were created without vectors), so a card is always produced.
+    """
+    contact_interests = contact_info.get("interests", [])
+    if not contact_interests:
+        return {"overlap_points": [], "overlap_score": 0.0, "matched_personas": []}
+
+    # --- 1. Vector ranking against the PEP ---------------------------------
+    try:
+        from ..services.gemini_integration import embed_text
+        from ..services.overlap import compute_persona_matches
+
+        vector = embed_text(", ".join(contact_interests[:15]))
+        # threshold=0 so we always learn the best available match; the score we
+        # return is the real similarity, so weak matches read as weak.
+        matches = compute_persona_matches(user_id, vector, threshold=0.0, top_k=5)
+    except Exception as e:
+        logger.warning(f"Vector overlap unavailable, falling back to LLM: {e}")
+        matches = []
+
+    if matches:
+        top = matches[0]
+        score = max(0.0, min(1.0, round(float(top["similarity"]), 3)))
+        matched_labels = [m["label"] for m in matches[:3]]
+        overlap_points = _explain_overlap(contact_interests, matched_labels)
+        if not overlap_points:
+            overlap_points = matched_labels
+        return {
+            "overlap_points": overlap_points,
+            "overlap_score": score,
+            "matched_personas": [
+                {"id": m.get("persona_id"), "label": m["label"],
+                 "similarity": round(float(m["similarity"]), 3)}
+                for m in matches
+            ],
+        }
+
+    # --- 2. Fallback: pure-LLM overlap ------------------------------------
+    return _llm_overlap(contact_info, persona_labels)
+
+
+def _explain_overlap(contact_interests: list, persona_labels: list) -> list:
+    """Use Gemini to describe the shared ground for the top-ranked personas."""
+    if not persona_labels:
+        return []
+    try:
+        import google.genai as genai
+        client = genai.Client(api_key=settings.gemini_api_key)
+
+        prompt = f"""These are the user's most relevant identity facets and a new
+contact's interests. In 2-4 short phrases, name the concrete shared ground or
+complementary areas between them.
+
+User's matched facets: {', '.join(persona_labels)}
+Contact's interests: {', '.join(contact_interests[:10])}
+
+Return ONLY a JSON array of strings."""
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                temperature=0.3, max_output_tokens=200
+            ),
+        )
+        output = response.text.strip()
+        if output.startswith("```"):
+            output = output.split("\n", 1)[-1]
+            if output.endswith("```"):
+                output = output[:-3]
+            output = output.strip()
+        points = json.loads(output)
+        return points if isinstance(points, list) else []
+    except Exception as e:
+        logger.warning(f"Overlap explanation failed: {e}")
+        return []
+
+
+def _llm_overlap(contact_info: dict, persona_labels: list) -> dict:
+    """Pure-LLM overlap (fallback when the user has no persona vectors yet)."""
     contact_interests = contact_info.get("interests", [])
     if not contact_interests or not persona_labels:
-        return {"overlap_points": [], "overlap_score": 0.0}
+        return {"overlap_points": [], "overlap_score": 0.0, "matched_personas": []}
 
     try:
         import google.genai as genai
@@ -285,22 +407,21 @@ Return ONLY valid JSON."""
             model="gemini-2.0-flash",
             contents=prompt,
             config=genai.types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=300,
+                temperature=0.3, max_output_tokens=300
             ),
         )
-
         output = response.text.strip()
         if output.startswith("```"):
             output = output.split("\n", 1)[-1]
             if output.endswith("```"):
                 output = output[:-3]
             output = output.strip()
-
-        return json.loads(output)
+        result = json.loads(output)
+        result.setdefault("matched_personas", [])
+        return result
     except Exception as e:
         logger.error(f"Overlap computation failed: {e}")
-        return {"overlap_points": [], "overlap_score": 0.3}
+        return {"overlap_points": [], "overlap_score": 0.3, "matched_personas": []}
 
 
 def _generate_follow_up(contact_info: dict, overlap_result: dict) -> str:

@@ -1,0 +1,9 @@
+# Process definitions for Railway/Render/Heroku-style platforms
+# (one service per process type). Each line is an independently scalable process.
+#
+# web   — the FastAPI API (binds the platform-provided $PORT)
+# worker— Celery worker consuming all queues (transcription, enrichment, default)
+# beat  — Celery beat scheduler for periodic reminders/maintenance (run ONE)
+web: uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}
+worker: celery -A src.celery_app worker -Q transcription,enrichment,default --loglevel=info
+beat: celery -A src.celery_app beat --loglevel=info

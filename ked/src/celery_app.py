@@ -87,6 +87,8 @@ app.conf.task_routes = {
     "src.tasks.pii_scrubbing.*": {"queue": "default"},
     "src.tasks.contact_tasks.*": {"queue": "default"},
     "src.tasks.reminder_tasks.*": {"queue": "default"},
+    "src.tasks.source_dispatcher.*": {"queue": "enrichment"},
+    "src.tasks.identity_resolution.*": {"queue": "enrichment"},
 }
 
 # Auto-discover task modules
@@ -96,6 +98,8 @@ app.autodiscover_tasks([
     "src.tasks.synthesis_tasks",
     "src.tasks.contact_tasks",
     "src.tasks.reminder_tasks",
+    "src.tasks.source_dispatcher",
+    "src.tasks.identity_resolution",
 ])
 
 # Celery Beat schedule — periodic tasks

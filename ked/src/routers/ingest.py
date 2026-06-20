@@ -33,7 +33,9 @@ from ..supabase_client import (
 )
 from ..exceptions import ValidationError, ExternalServiceError
 from ..config import settings
-from ..tasks.transcription_tasks import transcribe_audio_bytes
+# Dispatch by task NAME (not by importing the task) so the API process does not
+# pull in worker-only deps (Deepgram SDK, scrapers). See requirements-*.txt.
+from ..celery_app import app as celery_app
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ingest", tags=["ingest"])
@@ -188,7 +190,11 @@ async def ingest_audio(
             # Branch B: Dispatch Celery transcription immediately with bytes (no wait)
             try:
                 audio_b64 = base64.b64encode(processed_bytes).decode('utf-8')
-                transcribe_audio_bytes.delay(user_id, job_id, audio_b64, mode, event_name)
+                celery_app.send_task(
+                    "src.tasks.transcription_tasks.transcribe_audio_bytes",
+                    args=[user_id, job_id, audio_b64, mode, event_name],
+                    queue="transcription",
+                )
                 logger.info(f"[{user_id}] Dispatched transcription task (job={job_id})")
             except Exception as e:
                 logger.warning(f"Failed to dispatch transcription task: {e}")

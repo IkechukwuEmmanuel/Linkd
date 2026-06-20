@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 
 from ..models import UserPersona, InterestNode
 from ..config import settings
-from . import deepgram_integration, linkedin_scraper
+# linkedin_scraper pulls heavy worker-only deps (selenium/playwright/bs4); it is
+# imported lazily in the LinkedIn flow so the API can run without them.
+from . import deepgram_integration
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,8 @@ def ingest_linkedin_profile(user_id: int, profile_url: str, db: Session) -> list
     Returns list of persona nodes with labels and weights.
     """
     
-    # Scrape the profile
+    # Scrape the profile (heavy worker-only deps imported lazily)
+    from . import linkedin_scraper
     profile_data = linkedin_scraper.scrape_profile(profile_url)
     logger.info(f"[user_id={user_id}] Scraped LinkedIn profile from {profile_url}")
 

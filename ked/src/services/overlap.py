@@ -5,6 +5,16 @@ from ..db import engine
 logger = logging.getLogger(__name__)
 
 
+def _to_pgvector(embedding) -> str:
+    """Format an embedding as a pgvector text literal: ``[1,2,3]``.
+
+    We bind this as a plain string and ``CAST(:vec AS vector)`` in SQL. Using the
+    ``::vector`` cast inside SQLAlchemy ``text()`` breaks bind-param parsing
+    (the ``:`` is read as a parameter marker), so CAST(...) is required.
+    """
+    return "[" + ",".join(str(float(x)) for x in embedding) + "]"
+
+
 def compute_top_synapses(
     user_id: int,
     embedding_vector,
@@ -27,13 +37,13 @@ def compute_top_synapses(
     """
     query = text(
         "SELECT id, label, similarity, distance "
-        "FROM compute_top_synapses(:uid, :vec::vector, :threshold, :k);"
+        "FROM compute_top_synapses(:uid, CAST(:vec AS vector), :threshold, :k);"
     )
     try:
         with engine.connect() as conn:
             result = conn.execute(
                 query,
-                {"uid": user_id, "vec": embedding_vector, "threshold": threshold, "k": top_k},
+                {"uid": user_id, "vec": _to_pgvector(embedding_vector), "threshold": threshold, "k": top_k},
             ).fetchall()
 
         synapses = []
@@ -76,13 +86,13 @@ def compute_persona_matches(
     """
     query = text(
         "SELECT id, label, weight, similarity "
-        "FROM compute_persona_matches(:uid, :vec::vector, :threshold, :k);"
+        "FROM compute_persona_matches(:uid, CAST(:vec AS vector), :threshold, :k);"
     )
     try:
         with engine.connect() as conn:
             result = conn.execute(
                 query,
-                {"uid": user_id, "vec": embedding_vector, "threshold": threshold, "k": top_k},
+                {"uid": user_id, "vec": _to_pgvector(embedding_vector), "threshold": threshold, "k": top_k},
             ).fetchall()
 
         matches = []
@@ -124,13 +134,13 @@ def compute_weighted_synapses(
     """
     query = text(
         "SELECT interaction_label, persona_id, persona_label, base_similarity, weighted_score "
-        "FROM compute_weighted_synapses(:uid, :vec::vector, :threshold, :k);"
+        "FROM compute_weighted_synapses(:uid, CAST(:vec AS vector), :threshold, :k);"
     )
     try:
         with engine.connect() as conn:
             result = conn.execute(
                 query,
-                {"uid": user_id, "vec": embedding_vector, "threshold": threshold, "k": top_k},
+                {"uid": user_id, "vec": _to_pgvector(embedding_vector), "threshold": threshold, "k": top_k},
             ).fetchall()
 
         synapses = []

@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict, field_validator, model_validator
+from pydantic import ConfigDict, model_validator
 
 
 class Settings(BaseSettings):
@@ -18,15 +18,10 @@ class Settings(BaseSettings):
     deepgram_api_key: str
     gemini_api_key: str
     
-    # Authentication provider: "local" (built-in JWT) or "supabase" (verify
-    # Supabase tokens and bridge to a local user row). Default local keeps the
-    # built-in flow working; production using Supabase Auth sets "supabase".
-    auth_provider: str = "local"
+    # Authentication is Supabase-only. Supabase Auth is the single source of
+    # truth; the backend verifies Supabase access tokens and bridges them to the
+    # integer users.id used across the schema. Supabase config below is required.
 
-    # JWT configuration - REQUIRED for production (local auth provider)
-    jwt_secret_key: str = ""  # MUST be set in production
-    jwt_expiration_hours: int = 24
-    
     # Redis configuration for Celery - supports full URL or individual host/port
     redis_url: str = ""  # Full Redis URL (overrides host/port if provided)
     redis_host: str = "localhost"
@@ -39,8 +34,24 @@ class Settings(BaseSettings):
     # Audio storage configuration
     audio_storage_dir: str = "/data/linkd/users"  # Base directory for user audio files
     
-    # CORS configuration
-    cors_origins: list = ["http://localhost:3000", "http://localhost:8080"]
+    # CORS configuration. Stored as a raw string (comma-separated, the documented
+    # env format, or a JSON list) and exposed parsed via `cors_origins_list`.
+    # Kept as `str` because pydantic-settings JSON-decodes list-typed env vars at
+    # the source level and would crash on a plain comma-separated value.
+    cors_origins: str = "http://localhost:3000,http://localhost:8080"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        s = (self.cors_origins or "").strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            import json
+            try:
+                return json.loads(s)
+            except Exception:
+                pass
+        return [o.strip() for o in s.split(",") if o.strip()]
     
     # Rate limiting
     rate_limit_enabled: bool = True
@@ -77,17 +88,23 @@ class Settings(BaseSettings):
     def _validate_production_secrets(self):
         """Fail closed in non-development environments.
 
-        Runs after all fields are populated (unlike the previous per-field
-        validator, which could not see `environment` and so never fired).
+        Auth is Supabase-only, so production must have Supabase configured.
+        Runs after all fields are populated so it can see `environment`.
         """
         if self.environment != 'development':
-            if not self.jwt_secret_key:
-                raise ValueError(
-                    'JWT_SECRET_KEY must be set in non-development environments'
+            missing = [
+                name
+                for name, value in (
+                    ('SUPABASE_URL', self.supabase_url),
+                    ('SUPABASE_ANON_KEY', self.supabase_anon_key),
                 )
-        # Provide a clearly-marked dev fallback only in development.
-        if not self.jwt_secret_key:
-            self.jwt_secret_key = 'dev-secret-key-change-me'
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"{', '.join(missing)} must be set in non-development "
+                    f"environments (auth is Supabase-only)"
+                )
         return self
 
 
