@@ -149,7 +149,13 @@ p:last-child { margin-bottom: 0; }
 
 /* --------------------- hero signature: memory card -------------------- */
 
-.hero-card-stage { display: flex; justify-content: center; }
+.hero-card-stage {
+  display: flex;
+  justify-content: center;
+  /* drop-shadow (not box-shadow) so it follows the clipped folded silhouette;
+     box-shadow would be clipped away by the card's clip-path. */
+  filter: drop-shadow(0 16px 30px rgba(43, 42, 38, 0.26));
+}
 
 .memory-card {
   position: relative;
@@ -158,7 +164,6 @@ p:last-child { margin-bottom: 0; }
   background: var(--card);
   border-radius: 2px;               /* deliberately near-square: "a kept note" */
   padding: 24px 24px 26px;
-  box-shadow: 0 1px 0 rgba(43,42,38,0.04), 0 18px 40px -24px rgba(43,42,38,0.45);
   /* clip the top-right corner so the fold reads as a real cut */
   clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
 }
