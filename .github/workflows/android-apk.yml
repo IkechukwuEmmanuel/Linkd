@@ -10,6 +10,9 @@ name: Android APK
 on:
   push:
     branches: [ main, feat/pipeline-and-ux-build ]
+    paths:
+      - 'lin/**'
+      - '.github/workflows/android-apk.yml'
   workflow_dispatch:
     inputs:
       api_base_url:

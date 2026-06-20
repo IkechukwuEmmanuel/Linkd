@@ -52,7 +52,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
+          # dev pins everything (api + worker + pytest/alembic) for the test run.
+          pip install -r requirements-dev.txt
       - name: Run tests
         run: pytest
       - name: Audit dependencies for known vulnerabilities
