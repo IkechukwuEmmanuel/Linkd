@@ -35,9 +35,14 @@ python -c "import supabase; print('✓ Supabase installed')"
 ### Local Development (.env file)
 
 ```bash
+# Verify Supabase Auth tokens and bridge them to local integer user rows.
+AUTH_PROVIDER=supabase
+
 # From Supabase Dashboard → Settings → API
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+# service_role is REQUIRED in production: the backend writes storage/DB past
+# the deny-all RLS with this key.
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
@@ -48,6 +53,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 3. Go to **Settings → Shared Variables**
 4. Add these variables:
    ```
+   AUTH_PROVIDER = supabase
    SUPABASE_URL = https://your-project.supabase.co
    SUPABASE_ANON_KEY = <your-anon-key>
    SUPABASE_SERVICE_ROLE_KEY = <your-service-role-key>
@@ -176,23 +182,38 @@ Expected response:
 }
 ```
 
-### C. Get an Auth Token
+### C. Get a Supabase Auth Token
 
-`/ingest` authenticates with the backend's **local JWT** (integer user id), not
-a Supabase Auth token. Register/sign in against the backend's own auth routes
-to obtain a token, then use it as the Bearer token below.
+With `AUTH_PROVIDER=supabase` (the production setting), `/ingest` verifies a
+**Supabase Auth JWT** and bridges it to the local integer `users.id` by email
+(see `_resolve_supabase_user` / `get_or_create_local_user` in `src/auth.py`).
+So obtain the token from Supabase Auth, not the backend's local routes.
 
-```bash
-# Sign up (or POST /auth/signin) via the backend's local auth endpoints, then
-# copy the returned "token" field from the JSON response.
-curl -X POST http://localhost:8000/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com", "password": "password123"}'
+```python
+from supabase import create_client
+
+client = create_client(
+    "https://<project>.supabase.co",
+    "<anon-key>",
+)
+
+# Sign up once (email confirmation may be required by your project's Auth
+# settings — confirm the user, or disable "Confirm email" in
+# Dashboard -> Authentication -> Providers -> Email for testing), then sign in:
+client.auth.sign_up({"email": "you@yourdomain.com", "password": "Password123!"})
+resp = client.auth.sign_in_with_password(
+    {"email": "you@yourdomain.com", "password": "Password123!"}
+)
+print(resp.session.access_token)   # <- Bearer token for /ingest
 ```
 
-> Only switch to Supabase-Auth tokens here if you have set
-> `auth_provider="supabase"` in config — which also requires the uuid schema
-> changes described in Step 3C.
+The backend verifies this token via `client.auth.get_user(token)`; the first
+request for a new email auto-provisions a local `users` row (the integer id
+that owns `recordings`/`contacts`/etc.).
+
+> If you instead run with `AUTH_PROVIDER=local`, get the token from the
+> backend's own `POST /auth/signup` (returns a `token` field) — the integer id
+> is encoded directly in that JWT and no Supabase token is involved.
 
 ### D. Test Protected Ingest Endpoint
 
