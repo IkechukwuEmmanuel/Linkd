@@ -1,5 +1,21 @@
 # Supabase Integration Deployment Checklist
 
+> **Schema model (read first).** Linkd uses a two-database split: relational
+> core data lives in **local Postgres** (`users` has an integer `SERIAL` id),
+> while `recordings`, `user_profiles`, and the audio storage bucket live in
+> **Supabase**. The `/ingest` endpoints authenticate with the **local integer
+> JWT** (not a Supabase Auth uuid — see `src/routers/ingest.py` and migration
+> `005_recordings_updates.sql`). Therefore the Supabase `user_id` columns are
+> `BIGINT`, NOT `uuid references auth.users`. Because the backend uses the
+> **service-role key** (which bypasses RLS) and there is no Supabase-Auth user
+> context, RLS is enabled as **deny-all** (no `auth.uid()` policies — those
+> would be meaningless against integer ids). Audio is stored in the
+> **`interactions`** bucket, not `recordings`.
+>
+> The SQL in Step 3 is already applied to the configured project via the
+> Supabase MCP migration `linkd_app_schema_integer_userid`; it is reproduced
+> here so the setup is reproducible on a fresh project.
+
 ## Step 1: Install Dependencies
 
 ```bash
@@ -46,39 +62,48 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Go to **Supabase Dashboard → SQL Editor** and run:
 
 ```sql
--- Create user_profiles table
+-- Create user_profiles table.
+-- user_id is BIGINT to match the local integer users.id (NOT a Supabase uuid).
 create table if not exists user_profiles (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
+  user_id bigint not null,
   email text not null,
   display_name text,
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now(),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
   unique(user_id)
 );
 
--- Create recordings table  
+-- Create recordings table.
+-- user_id is BIGINT (local integer identity). storage_url is nullable: the
+-- row is inserted with status 'processing' before the background upload sets
+-- it. transcript_json / contact_id / event_name are written by the
+-- transcription + contact write-back tasks (see migration 005).
 create table if not exists recordings (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
+  user_id bigint not null,
   recording_id uuid not null,
   mode text not null check (mode in ('live', 'recap')),
   duration_seconds integer not null check (duration_seconds > 0),
   file_size integer not null,
-  storage_url text not null,
-  status text default 'uploaded' check (status in ('uploaded', 'processing', 'completed', 'failed')),
+  storage_url text,
+  status text default 'uploaded' check (status in ('processing', 'uploaded', 'completed', 'failed')),
   metadata jsonb,
   job_id uuid,
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now(),
+  transcript_json jsonb,
+  contact_id integer,
+  event_name varchar(255),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
   unique(user_id, recording_id)
 );
 
 -- Create indexes
-create index idx_user_profiles_user_id on user_profiles(user_id);
-create index idx_recordings_user_id on recordings(user_id);
-create index idx_recordings_status on recordings(status);
-create index idx_recordings_created_at on recordings(created_at desc);
+create index if not exists idx_user_profiles_user_id on user_profiles(user_id);
+create index if not exists idx_recordings_user_id on recordings(user_id);
+create index if not exists idx_recordings_status on recordings(status);
+create index if not exists idx_recordings_created_at on recordings(created_at desc);
+create index if not exists idx_recordings_job_id on recordings(job_id);
 ```
 
 ### B. Create Storage Bucket
@@ -86,65 +111,36 @@ create index idx_recordings_created_at on recordings(created_at desc);
 In **Supabase Dashboard → Storage**:
 
 1. Click **+ New bucket**
-2. Name: `recordings`
+2. Name: `interactions`  (this is the source-of-truth audio bucket the
+   backend uploads to and deletes from — see `src/routers/ingest.py`)
 3. Visibility: **Private**
 4. Click **Create bucket**
 
 ### C. Enable Row-Level Security
 
+The backend talks to Supabase with the **service-role key**, which bypasses
+RLS, and there is no Supabase-Auth user context (auth is local integer JWT).
+So RLS is enabled as a **deny-all** safety net: anon/`authenticated` roles get
+no access, and only the service role can read/write. There are intentionally
+**no `auth.uid()` policies** — `auth.uid()` is a uuid and could never match an
+integer `user_id`.
+
+> Note: the project also has an event trigger `public.rls_auto_enable()` that
+> automatically enables RLS on any new `public` table, so the `alter table`
+> lines below may already be in effect.
+
 In **Supabase Dashboard → SQL Editor**, run:
 
 ```sql
--- Enable RLS on tables
+-- Enable RLS on tables (deny-all to anon/authenticated; service role bypasses RLS).
 alter table user_profiles enable row level security;
 alter table recordings enable row level security;
-
--- Policies for user_profiles
-create policy "Users can view own profile"
-  on user_profiles for select
-  using (auth.uid() = user_id);
-
-create policy "Users can insert own profile"
-  on user_profiles for insert
-  with check (auth.uid() = user_id);
-
-create policy "Users can update own profile"
-  on user_profiles for update
-  using (auth.uid() = user_id);
-
--- Policies for recordings
-create policy "Users can view own recordings"
-  on recordings for select
-  using (auth.uid() = user_id);
-
-create policy "Users can insert recordings"
-  on recordings for insert
-  with check (auth.uid() = user_id);
-
-create policy "Users can update own recordings"
-  on recordings for update
-  using (auth.uid() = user_id);
-
-create policy "Users can delete own recordings"
-  on recordings for delete
-  using (auth.uid() = user_id);
-
--- Storage policies
-create policy "Authenticated users can upload recordings"
-  on storage.objects for insert
-  to authenticated
-  with check (bucket_id = 'recordings');
-
-create policy "Users can access own recordings"
-  on storage.objects for select
-  to authenticated
-  using (bucket_id = 'recordings' and auth.uid()::text = (storage.foldername(name))[1]);
-
-create policy "Users can delete own recordings"
-  on storage.objects for delete
-  to authenticated
-  using (bucket_id = 'recordings' and auth.uid()::text = (storage.foldername(name))[1]);
 ```
+
+If you later migrate the backend to Supabase Auth (uuid identities), revisit
+this: change the `user_id` columns to `uuid references auth.users(id)` and add
+per-user `auth.uid() = user_id` table policies plus the matching
+`storage.objects` policies for the `interactions` bucket.
 
 ---
 
@@ -180,34 +176,23 @@ Expected response:
 }
 ```
 
-### C. Get Supabase JWT Token
+### C. Get an Auth Token
 
-Use Supabase client to sign in:
+`/ingest` authenticates with the backend's **local JWT** (integer user id), not
+a Supabase Auth token. Register/sign in against the backend's own auth routes
+to obtain a token, then use it as the Bearer token below.
 
 ```bash
-# Using Supabase CLI (if installed)
-supabase auth test-user --password yourpassword
-
-# Or via JavaScript/Python client library
+# Sign up (or POST /auth/signin) via the backend's local auth endpoints, then
+# copy the returned "token" field from the JSON response.
+curl -X POST http://localhost:8000/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "password123"}'
 ```
 
-Example in Python:
-```python
-from supabase import create_client
-
-client = create_client(
-    "https://your-project.supabase.co",
-    "your-anon-key"
-)
-
-# Sign up or sign in
-response = client.auth.sign_up(
-    {"email": "test@example.com", "password": "password123"}
-)
-
-token = response.session.access_token
-print(f"Token: {token}")
-```
+> Only switch to Supabase-Auth tokens here if you have set
+> `auth_provider="supabase"` in config — which also requires the uuid schema
+> changes described in Step 3C.
 
 ### D. Test Protected Ingest Endpoint
 
@@ -230,11 +215,17 @@ Expected response:
 {
   "success": true,
   "recording_id": "550e8400-e29b-41d4-a716-446655440000",
-  "user_id": "user-uuid",
-  "storage_url": "https://project.supabase.co/storage/...",
-  "message": "Audio ingested successfully"
+  "user_id": 42,
+  "storage_url": null,
+  "job_id": "660e8400-e29b-41d4-a716-446655440111",
+  "message": "Ingest started (uploading + transcription dispatched)"
 }
 ```
+
+`storage_url` is `null` here because the upload runs in the background;
+`user_id` is the integer local id. Poll `GET /ingest/status/{job_id}` (or
+re-fetch the recording) to see `storage_url` and `status` once the upload and
+transcription complete.
 
 ### E. Test Authentication Protection
 
@@ -267,14 +258,14 @@ Should show your uploaded recording with all metadata.
 
 ### B. Check Storage Files
 
-In **Supabase Dashboard → Storage → recordings**:
+In **Supabase Dashboard → Storage → interactions**:
 
 You should see files organized as:
 ```
-recordings/
+interactions/
 └── {user_id}/
     └── recordings/
-        └── {recording_id}.wav
+        └── {recording_id}.{ext}
 ```
 
 ---
@@ -317,9 +308,9 @@ curl https://your-railway-app.up.railway.app/ingest/status
 
 - [ ] Supabase library installed (`pip install supabase`)
 - [ ] Environment variables configured (SUPABASE_URL, SUPABASE_ANON_KEY)
-- [ ] Database tables created (user_profiles, recordings)
-- [ ] Storage bucket created (recordings)
-- [ ] RLS policies enabled
+- [ ] Database tables created (user_profiles, recordings) with BIGINT user_id
+- [ ] Storage bucket created (interactions)
+- [ ] RLS enabled (deny-all; service-role-only)
 - [ ] `/ingest/status` endpoint returns 200 OK
 - [ ] `/ingest/audio` endpoint requires authentication (401 without token)
 - [ ] Token authentication works (201 with valid token)
@@ -351,14 +342,16 @@ cat .env | grep SUPABASE
 
 ### "Storage permission denied"
 
-- Check RLS policies are enabled
-- Ensure `authenticated` role can upload
+- The backend must use the **service-role key** (`SUPABASE_SERVICE_ROLE_KEY`) —
+  the anon key cannot write past the deny-all RLS.
+- Confirm the `interactions` bucket exists.
 
 ### Files not appearing in storage
 
-1. Check upload response has `storage_url`
-2. Verify bucket name is `recordings`
-3. Check file path format: `{user_id}/recordings/{id}.wav`
+1. The upload runs in the background, so the initial ingest response has
+   `storage_url: null` — re-fetch the recording after a moment.
+2. Verify bucket name is `interactions`.
+3. Check file path format: `{user_id}/recordings/{recording_id}.{ext}`
 
 ---
 
@@ -367,10 +360,10 @@ cat .env | grep SUPABASE
 ✅ **Components Integrated**:
 - Supabase client initialization
 - JWT authentication protection
-- Storage upload/download/delete
+- Storage upload/download/delete (`interactions` bucket)
 - Database CRUD operations
-- RLS policies for security
-- Protected ingest endpoint
+- Deny-all RLS (service-role-only) for security
+- Protected ingest endpoint (local integer JWT)
 
 ✅ **Endpoints Available**:
 - `POST /ingest/audio` - Ingest audio with Supabase auth
@@ -380,9 +373,9 @@ cat .env | grep SUPABASE
 - `GET /ingest/status` - Health check (no auth)
 
 ✅ **Ready for Production**:
-- All endpoints secured with JWT
-- Database schema with RLS
-- Storage policies configured
+- All endpoints secured with JWT (local integer identity)
+- Database schema (BIGINT user_id) with deny-all RLS
+- Private `interactions` storage bucket
 - Error handling implemented
 - Logging in place
 
