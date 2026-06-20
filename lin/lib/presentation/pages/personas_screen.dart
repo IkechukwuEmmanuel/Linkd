@@ -2,234 +2,137 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
-import '../../presentation/providers/app_providers.dart';
+import '../providers/app_providers.dart';
+import '../widgets/facet_ring.dart';
+import 'facet_detail_screen.dart';
 
+/// Facets describe the user's OWN identity (the personal enrichment profile,
+/// expressed as weighted facets). Their visual language is growth rings — never
+/// memory cards, overlap circles, or connection threads.
 
-/// Personas management screen
+/// 0.0–1.0 confidence/strength for a facet, used to size the ring.
+double facetStrength(Persona p) =>
+    (p.confidenceScore ?? (p.weight / 10)).clamp(0.0, 1.0);
+
+MatchTier facetTier(Persona p) {
+  final s = facetStrength(p);
+  if (s >= 0.7) return MatchTier.strong;
+  if (s >= 0.4) return MatchTier.moderate;
+  return MatchTier.low;
+}
+
+bool facetConfirmed(Persona p) => facetTier(p) == MatchTier.strong;
+
+String facetCaption(Persona p) {
+  switch (facetTier(p)) {
+    case MatchTier.strong:
+      return 'strengthened over time';
+    case MatchTier.moderate:
+      return 'still forming · needs confirmation';
+    case MatchTier.low:
+      return 'one mention, fading';
+  }
+}
+
+/// "Your facets" — list view.
 class PersonasScreen extends ConsumerWidget {
   const PersonasScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final personasAsync = ref.watch(personasProvider);
-    final selectedPersona = ref.watch(selectedPersonaProvider);
+    final tokens = MossTokens.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Your Personas'),
+        title: Text('your facets',
+            style: Theme.of(context).textTheme.displaySmall),
       ),
       body: personasAsync.when(
         data: (personas) {
           if (personas.isEmpty) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.person_outline,
-                    size: 80,
-                    color: AppTheme.textSecondary,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No personas yet',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Create your first persona from voice pitch or LinkedIn',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textSecondary,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('no facets yet',
+                        style: Theme.of(context).textTheme.displaySmall),
+                    const SizedBox(height: 12),
+                    Text(
+                      'build your profile from a voice pitch or your linkedin, and your facets will grow here.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: tokens.textSecondary,
+                            height: 1.5,
+                          ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             );
           }
 
-          return ListView.builder(
+          return ListView.separated(
             itemCount: personas.length,
-            padding: const EdgeInsets.all(16),
-            itemBuilder: (context, index) {
-              final persona = personas[index];
-              return PersonaCard(
-                persona: persona,
-                isSelected: selectedPersona?.id == persona.id,
-                onTap: () {
-                  ref.read(selectedPersonaProvider.notifier).state = persona;
-                },
-              );
-            },
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            separatorBuilder: (_, __) =>
+                Divider(height: 1, thickness: 0.5, color: tokens.border),
+            itemBuilder: (context, index) =>
+                _FacetRow(persona: personas[index]),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
+        error: (err, stack) => Center(
+          child: Text('error: $err',
+              style: Theme.of(context).textTheme.bodyMedium),
+        ),
       ),
     );
   }
 }
 
-class PersonaCard extends ConsumerWidget {
+class _FacetRow extends StatelessWidget {
   final Persona persona;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const PersonaCard({
-    super.key,
-    required this.persona,
-    required this.isSelected,
-    required this.onTap,
-  });
+  const _FacetRow({required this.persona});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        color: isSelected
-            ? AppTheme.primaryColor.withValues(alpha: 0.1)
-            : AppTheme.surfaceColor,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.2),
-                    radius: 24,
-                    child: Text(
-                      persona.label[0].toUpperCase(),
-                      style: const TextStyle(
-                        color: AppTheme.primaryColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          persona.label,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Weight: ${persona.weight}/10',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    itemBuilder: (context) => [
-                      const PopupMenuItem<String>(
-                        value: 'approve',
-                        child: Text('Approve'),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'reject',
-                        child: Text('Reject'),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'rate',
-                        child: Text('Rate'),
-                      ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem<String>(
-                        value: 'delete',
-                        child: Text('Delete'),
-                      ),
-                    ],
-                    onSelected: (value) {
-                      _handlePersonaAction(
-                        context,
-                        ref,
-                        value,
-                        persona.id,
-                      );
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Weight indicator
-              Column(
+  Widget build(BuildContext context) {
+    final tokens = MossTokens.of(context);
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FacetDetailScreen(persona: persona),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            FacetRing(
+              strength: facetStrength(persona),
+              tier: facetTier(persona),
+              size: 52,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Weight',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: persona.weight / 10,
-                      minHeight: 8,
-                      backgroundColor: AppTheme.borderColor,
-                      valueColor: AlwaysStoppedAnimation(
-                        _getWeightColor(persona.weight.toInt()),
-                      ),
-                    ),
-                  ),
+                  Text(persona.label,
+                      style: Theme.of(context).textTheme.headlineLarge),
+                  const SizedBox(height: 2),
+                  Text(facetCaption(persona),
+                      style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
-            ],
-          ),
+            ),
+            Icon(Icons.chevron_right, color: tokens.textSecondary),
+          ],
         ),
       ),
     );
-  }
-
-  void _handlePersonaAction(
-    BuildContext context,
-    WidgetRef ref,
-    String action,
-    int personaId,
-  ) {
-    if (action.contains('Approve')) {
-      ref.read(submitFeedbackProvider(
-        (
-          personaId: personaId,
-          feedbackType: 'approved',
-          rating: null,
-          notes: null,
-        ),
-      ));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Persona approved!')),
-      );
-    } else if (action.contains('Reject')) {
-      ref.read(submitFeedbackProvider(
-        (
-          personaId: personaId,
-          feedbackType: 'rejected',
-          rating: null,
-          notes: null,
-        ),
-      ));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Persona rejected!')),
-      );
-    } else if (action.contains('Delete')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Delete functionality - coming soon')),
-      );
-    }
-  }
-
-  Color _getWeightColor(int weight) {
-    if (weight <= 3) return Colors.red;
-    if (weight <= 6) return Colors.orange;
-    if (weight <= 8) return Colors.blue;
-    return AppTheme.secondaryColor;
   }
 }

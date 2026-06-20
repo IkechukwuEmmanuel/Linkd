@@ -13,8 +13,11 @@ import 'contact_detail_page.dart';
 
 enum _RecordPhase { idle, recording, processing, error }
 
-/// Records an interaction, uploads it to the async ingest pipeline, polls for
-/// the resulting Contact, and navigates to its detail page.
+/// Capture is the core verb of the app, so it gets a dark, weighted treatment —
+/// a focus-mode surface that overrides the ambient light/dark theme (Section 9).
+///
+/// This screen only owns the visual framing; the recording → async ingest →
+/// poll → navigate-to-contact pipeline (Section 10) is unchanged.
 class RecordInteractionScreen extends ConsumerStatefulWidget {
   const RecordInteractionScreen({super.key});
 
@@ -25,22 +28,30 @@ class RecordInteractionScreen extends ConsumerStatefulWidget {
 
 class _RecordInteractionScreenState
     extends ConsumerState<RecordInteractionScreen> {
+  // The capture surface is its own deliberately darker, more saturated
+  // treatment — distinct from the dark-mode page background, used in BOTH
+  // themes (a viewfinder/focus-mode exception to "respect system theme").
+  static const Color _surface = Color(0xFF20231A);
+  static const Color _cream = AppTheme.darkTextPrimary;
+  static const Color _muted = AppTheme.darkTextSecondary;
+  static const Color _moss = AppTheme.green400;
+
   final AudioRecorder _recorder = AudioRecorder();
-  final TextEditingController _eventController = TextEditingController();
   Timer? _timer;
   int _secondsElapsed = 0;
 
   _RecordPhase _phase = _RecordPhase.idle;
   RecordingMode _mode = RecordingMode.recap;
-  String? _recordingPath;
-  String _processingMessage = 'Processing...';
+  String _processingMessage = 'processing…';
   String _errorMessage = '';
+  // When a denial is permanent, offer the system settings as the way out.
+  bool _offerSettings = false;
+  String? _recordingPath;
 
   @override
   void dispose() {
     _timer?.cancel();
     _recorder.dispose();
-    _eventController.dispose();
     super.dispose();
   }
 
@@ -61,7 +72,15 @@ class _RecordInteractionScreenState
   Future<void> _startRecording() async {
     final status = await Permission.microphone.request();
     if (!status.isGranted) {
-      if (mounted) _showPermissionDeniedDialog();
+      if (mounted) {
+        setState(() {
+          _phase = _RecordPhase.error;
+          _offerSettings = status.isPermanentlyDenied;
+          _errorMessage =
+              'linkd needs the microphone to capture a voice note about '
+              'someone you met. nothing is recorded until you allow it.';
+        });
+      }
       return;
     }
 
@@ -87,7 +106,8 @@ class _RecordInteractionScreenState
       if (mounted) {
         setState(() {
           _phase = _RecordPhase.error;
-          _errorMessage = 'Could not start recording: $e';
+          _offerSettings = false;
+          _errorMessage = 'could not start recording: $e';
         });
       }
     }
@@ -120,7 +140,8 @@ class _RecordInteractionScreenState
       if (mounted) {
         setState(() {
           _phase = _RecordPhase.error;
-          _errorMessage = 'Recording failed to save.';
+          _offerSettings = false;
+          _errorMessage = 'recording failed to save.';
         });
       }
       return;
@@ -129,7 +150,7 @@ class _RecordInteractionScreenState
     if (mounted) {
       setState(() {
         _phase = _RecordPhase.processing;
-        _processingMessage = 'Uploading...';
+        _processingMessage = 'uploading…';
       });
     }
     await _uploadAndPoll(path);
@@ -140,11 +161,7 @@ class _RecordInteractionScreenState
   Future<void> _uploadAndPoll(String filePath) async {
     final apiClient = ref.read(apiClientProvider);
     final eventMode = ref.read(eventModeProvider);
-    final eventName = eventMode.isActive
-        ? eventMode.eventName
-        : (_eventController.text.trim().isEmpty
-            ? null
-            : _eventController.text.trim());
+    final eventName = eventMode.isActive ? eventMode.eventName : null;
     try {
       final jobId = await apiClient.ingestAudio(
         filePath: filePath,
@@ -158,7 +175,7 @@ class _RecordInteractionScreenState
         );
       }
       if (jobId == null) {
-        throw Exception('No job ID returned from server');
+        throw Exception('no job id returned from server');
       }
 
       // Poll until the contact_id appears (the contact is created a moment
@@ -176,7 +193,7 @@ class _RecordInteractionScreenState
           break;
         }
         if (s == 'failed') {
-          throw Exception('Processing failed on the server');
+          throw Exception('processing failed on the server');
         }
       }
 
@@ -200,9 +217,7 @@ class _RecordInteractionScreenState
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Still processing — your contact will appear shortly.',
-            ),
+            content: Text('still processing — your contact will appear shortly.'),
           ),
         );
       }
@@ -210,6 +225,7 @@ class _RecordInteractionScreenState
       if (mounted) {
         setState(() {
           _phase = _RecordPhase.error;
+          _offerSettings = false;
           _errorMessage = e.toString();
         });
       }
@@ -222,13 +238,13 @@ class _RecordInteractionScreenState
     switch (status) {
       case 'processing':
       case 'uploaded':
-        return 'Transcribing your note...';
+        return 'transcribing your note…';
       case 'completed':
-        return 'Building contact profile...';
+        return 'building their profile…';
       case 'failed':
-        return 'Something went wrong';
+        return 'something went wrong';
       default:
-        return 'Processing...';
+        return 'processing…';
     }
   }
 
@@ -241,258 +257,253 @@ class _RecordInteractionScreenState
     } catch (_) {}
   }
 
-  // --------------------------------------------------------------- dialogs ---
+  // ------------------------------------------------------------------ UI ---
 
-  void _showPermissionDeniedDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Microphone access needed'),
-        content: const Text(
-          'Linkd needs microphone access to capture voice notes about people '
-          'you meet. Enable it in Settings to record.',
+  @override
+  Widget build(BuildContext context) {
+    // Override the ambient theme: this screen is always a dark focus surface.
+    return Theme(
+      data: AppTheme.darkTheme().copyWith(
+        scaffoldBackgroundColor: _surface,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: _surface,
+          foregroundColor: _cream,
+          elevation: 0,
+          scrolledUnderElevation: 0,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Not now'),
+      ),
+      child: Scaffold(
+        backgroundColor: _surface,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: _cream),
+            onPressed: _phase == _RecordPhase.processing
+                ? null
+                : () => Navigator.of(context).maybePop(),
           ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              openAppSettings();
-            },
-            child: const Text('Open Settings'),
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: _buildPhase(context),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhase(BuildContext context) {
+    switch (_phase) {
+      case _RecordPhase.processing:
+        return _processingView(context);
+      case _RecordPhase.error:
+        return _errorView(context);
+      case _RecordPhase.idle:
+      case _RecordPhase.recording:
+        return _captureView(context);
+    }
+  }
+
+  // The main idle/recording surface.
+  Widget _captureView(BuildContext context) {
+    final recording = _phase == _RecordPhase.recording;
+    final serif = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 12),
+        Text(
+          'ready when you are',
+          style: serif.displayLarge?.copyWith(color: _cream),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          recording
+              ? 'listening — take your time.'
+              : 'choose how you\'re capturing this.',
+          style: serif.bodyLarge?.copyWith(color: _muted),
+        ),
+        const SizedBox(height: 36),
+        if (!recording) _modeCards(context),
+        const Spacer(),
+        Center(child: _micButton(context, recording)),
+        const SizedBox(height: 28),
+        Center(
+          child: Text(
+            _formatDuration(_secondsElapsed),
+            style: serif.displayMedium?.copyWith(color: _cream),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: Text(
+            recording
+                ? 'tap to finish whenever you\'re ready'
+                : 'tap the mic to start',
+            style: serif.bodySmall?.copyWith(color: _muted),
+          ),
+        ),
+        if (recording) ...[
+          const SizedBox(height: 16),
+          Center(
+            child: GestureDetector(
+              onTap: _cancelRecording,
+              child: Text('cancel',
+                  style: serif.labelLarge?.copyWith(color: _muted)),
+            ),
+          ),
+        ],
+        const Spacer(),
+      ],
+    );
+  }
+
+  Widget _modeCards(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _modeCard(
+            context,
+            mode: RecordingMode.recap,
+            title: 'recap',
+            subtitle: 'tell me about them, after',
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _modeCard(
+            context,
+            mode: RecordingMode.live,
+            title: 'live',
+            subtitle: 'capture the conversation now',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _modeCard(
+    BuildContext context, {
+    required RecordingMode mode,
+    required String title,
+    required String subtitle,
+  }) {
+    final selected = _mode == mode;
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: () => setState(() => _mode = mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected ? _moss : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? _moss : _muted.withValues(alpha: 0.4),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.headlineMedium?.copyWith(color: _cream),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: selected
+                    ? _cream.withValues(alpha: 0.85)
+                    : _muted,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _micButton(BuildContext context, bool recording) {
+    return GestureDetector(
+      onTap: recording ? _stopAndProcess : _startRecording,
+      child: Container(
+        width: 116,
+        height: 116,
+        decoration: BoxDecoration(
+          color: recording ? AppTheme.red400 : _moss,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          recording ? Icons.stop_rounded : Icons.mic,
+          color: _cream,
+          size: 44,
+        ),
+      ),
+    );
+  }
+
+  Widget _processingView(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(color: _moss),
+          const SizedBox(height: 28),
+          Text(
+            _processingMessage,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineMedium?.copyWith(color: _cream),
           ),
         ],
       ),
     );
   }
 
-  // ------------------------------------------------------------------ UI ---
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Record Interaction')),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 32),
-              _buildVisual(context),
-              const SizedBox(height: 40),
-              if (_phase != _RecordPhase.processing)
-                Text(
-                  _formatDuration(_secondsElapsed),
-                  style: Theme.of(context).textTheme.displaySmall,
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 24),
-              _buildBody(context),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBody(BuildContext context) {
-    switch (_phase) {
-      case _RecordPhase.idle:
-        return Column(
-          children: [
-            _buildEventField(context),
-            const SizedBox(height: 20),
-            _buildModeSelector(context),
-            const SizedBox(height: 32),
-            FloatingActionButton.large(
-              heroTag: 'record',
-              backgroundColor: AppTheme.accentColor,
-              onPressed: _startRecording,
-              child: const Icon(Icons.mic, color: Colors.white, size: 32),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Tap to start recording',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        );
-      case _RecordPhase.recording:
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            FloatingActionButton(
-              heroTag: 'cancel',
-              backgroundColor: Colors.grey,
-              onPressed: _cancelRecording,
-              child: const Icon(Icons.close),
-            ),
-            FloatingActionButton.large(
-              heroTag: 'stop',
-              backgroundColor: Colors.red,
-              onPressed: _stopAndProcess,
-              child: const Icon(Icons.stop, color: Colors.white),
-            ),
-          ],
-        );
-      case _RecordPhase.processing:
-        return Column(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            Text(
-              _processingMessage,
-              style: Theme.of(context).textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        );
-      case _RecordPhase.error:
-        return Column(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage,
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () => setState(() {
-                _phase = _RecordPhase.idle;
-                _secondsElapsed = 0;
-              }),
-              child: const Text('Try Again'),
-            ),
-          ],
-        );
-    }
-  }
-
-  Widget _buildVisual(BuildContext context) {
-    final recording = _phase == _RecordPhase.recording;
-    return Container(
-      height: 150,
-      decoration: BoxDecoration(
-        color: recording
-            ? Colors.red.withValues(alpha: 0.08)
-            : AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: recording ? Colors.red : AppTheme.borderColor,
-          width: recording ? 2 : 1,
-        ),
-      ),
-      child: Center(
-        child: recording
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.mic, color: Colors.red, size: 48),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Recording...',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                ],
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  30,
-                  (index) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    child: Container(
-                      width: 4,
-                      height: 20 + (index % 15).toDouble() * 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.accentColor.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-      ),
-    );
-  }
-
-  Widget _buildEventField(BuildContext context) {
-    final eventMode = ref.watch(eventModeProvider);
-    if (eventMode.isActive) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.accentColor.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.event, size: 18, color: AppTheme.accentColor),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Event: ${eventMode.eventName}',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, color: AppTheme.accentColor),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    return TextField(
-      controller: _eventController,
-      decoration: const InputDecoration(
-        labelText: 'Event (optional)',
-        hintText: 'Where did you meet them?',
-        prefixIcon: Icon(Icons.event),
-      ),
-    );
-  }
-
-  Widget _buildModeSelector(BuildContext context) {
+  Widget _errorView(BuildContext context) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text('Interaction Mode',
-            style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
+        Text('hold on', style: theme.textTheme.displayMedium?.copyWith(color: _cream)),
+        const SizedBox(height: 14),
+        Text(
+          _errorMessage,
+          style: theme.textTheme.bodyLarge?.copyWith(color: _muted, height: 1.5),
+        ),
+        const SizedBox(height: 28),
         Row(
           children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
-                  label: const Text('LIVE'),
-                  selected: _mode == RecordingMode.live,
-                  onSelected: (sel) {
-                    if (sel) setState(() => _mode = RecordingMode.live);
-                  },
-                ),
+            GestureDetector(
+              onTap: () => setState(() {
+                _phase = _RecordPhase.idle;
+                _secondsElapsed = 0;
+                _offerSettings = false;
+              }),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('try again',
+                      style: theme.textTheme.headlineLarge
+                          ?.copyWith(color: AppTheme.green200)),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward,
+                      color: AppTheme.green200, size: 22),
+                ],
               ),
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
-                  label: const Text('RECAP'),
-                  selected: _mode == RecordingMode.recap,
-                  onSelected: (sel) {
-                    if (sel) setState(() => _mode = RecordingMode.recap);
-                  },
-                ),
+            if (_offerSettings) ...[
+              const SizedBox(width: 24),
+              GestureDetector(
+                onTap: openAppSettings,
+                child: Text('open settings',
+                    style: theme.textTheme.bodyLarge?.copyWith(color: _muted)),
               ),
-            ),
+            ],
           ],
         ),
       ],

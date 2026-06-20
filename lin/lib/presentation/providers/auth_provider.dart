@@ -1,5 +1,7 @@
 // Riverpod providers for authentication state management
 
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -78,14 +80,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final userJson = prefs.getString('user_json');
     if (userJson != null) {
       try {
-        return User.fromJson(Map<String, dynamic>.from(
-          Map<String, dynamic>.from({'': userJson}),
-        ));
+        return User.fromJson(
+          jsonDecode(userJson) as Map<String, dynamic>,
+        );
       } catch (e) {
         return null;
       }
     }
     return null;
+  }
+
+  /// Persist the resolved user so it can be restored on next app launch.
+  Future<void> _persistUser(User user) async {
+    await prefs.setString('user_json', jsonEncode(user.toJson()));
   }
 
   /// Persist a Supabase session and resolve the local user via the backend
@@ -99,6 +106,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final user = await apiClient.getMe();
     await prefs.setBool('is_authenticated', true);
     await prefs.setInt('user_id', user.id);
+    await _persistUser(user);
     state = state.copyWith(
       user: user,
       token: token,
@@ -122,6 +130,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final response = await apiClient.signup(email: email, password: password);
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
+      await _persistUser(response.user);
       state = state.copyWith(
         user: response.user,
         token: response.token,
@@ -152,6 +161,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final response = await apiClient.signin(email: email, password: password);
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
+      await _persistUser(response.user);
       state = state.copyWith(
         user: response.user,
         token: response.token,
@@ -173,6 +183,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final response = await apiClient.demoSignin();
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
+      await _persistUser(response.user);
       state = state.copyWith(
         user: response.user,
         token: response.token,
@@ -199,6 +210,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.remove('is_authenticated');
       await prefs.remove('user_id');
       await prefs.remove('auth_token');
+      await prefs.remove('user_json');
       state = AuthState();
     } catch (e) {
       rethrow;

@@ -4,33 +4,32 @@ import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
 import '../providers/auth_provider.dart';
 import '../providers/app_providers.dart';
-import '../providers/onboarding_tour_provider.dart';
-import '../widgets/onboarding_widgets.dart';
+import '../widgets/memory_card.dart';
+import '../widgets/overlap_indicator.dart';
 import 'contact_detail_page.dart';
+import 'contacts_page.dart';
+import 'record_interaction_screen.dart';
 import 'search_page.dart';
 
-/// Relationship command center — the app's home hub.
+/// The dashboard — deliberately the simplest possible version (Section 7):
+/// a greeting, follow-ups due, recent contacts, and one capture entry point.
+/// No stats grid, no facet preview, no onboarding-tour overlay (Section 7a).
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
 
-  String _greeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }
-
-  Color _avatarColor(String name) {
-    const colors = [
-      Color(0xFF6C63FF),
-      Color(0xFF00C896),
-      Color(0xFFFF6B6B),
-      Color(0xFFFFB547),
-      Color(0xFF00AEEF),
-      Color(0xFFFF6B9D),
+  // "tuesday evening" — small muted day/time line.
+  String _dayLine() {
+    const days = [
+      'monday', 'tuesday', 'wednesday', 'thursday',
+      'friday', 'saturday', 'sunday',
     ];
-    if (name.isEmpty) return colors.first;
-    return colors[name.hashCode.abs() % colors.length];
+    final now = DateTime.now();
+    final part = now.hour < 12
+        ? 'morning'
+        : now.hour < 17
+            ? 'afternoon'
+            : 'evening';
+    return '${days[now.weekday - 1]} $part';
   }
 
   void _openContact(BuildContext context, Contact contact) {
@@ -40,27 +39,25 @@ class HomePage extends ConsumerWidget {
     );
   }
 
+  void _openCapture(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RecordInteractionScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
     final contactsAsync = ref.watch(contactsProvider);
     final followUpsAsync = ref.watch(upcomingFollowUpsProvider);
-    final insightsAsync = ref.watch(insightsSummaryProvider);
     final eventMode = ref.watch(eventModeProvider);
+    final theme = Theme.of(context);
     final name = user?.email.split('@').first ?? 'there';
 
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        titleSpacing: 16,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${_greeting()},',
-                style: Theme.of(context).textTheme.bodySmall),
-            Text(name, style: Theme.of(context).textTheme.displaySmall),
-          ],
-        ),
+        title: const SizedBox.shrink(),
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -72,36 +69,310 @@ class HomePage extends ConsumerWidget {
           _buildNotificationsButton(context, ref),
         ],
       ),
-      body: Stack(
-        children: [
-          RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(contactsProvider);
-              ref.invalidate(upcomingFollowUpsProvider);
-              ref.invalidate(insightsSummaryProvider);
-            },
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-              children: [
-                _buildEventModeBar(context, ref, eventMode),
-                _buildFollowUps(context, followUpsAsync),
-                _buildNetworkStats(context, insightsAsync),
-                const SizedBox(height: 24),
-                _buildRecentContacts(context, contactsAsync),
-                const SizedBox(height: 24),
-                _buildClusters(context, insightsAsync),
-              ],
-            ),
-          ),
-          _buildTourOverlays(context, ref),
-        ],
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(contactsProvider);
+          ref.invalidate(upcomingFollowUpsProvider);
+        },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+          children: [
+            // 1. Greeting — two modest lines, not a hero moment.
+            Text(_dayLine(), style: theme.textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Text('welcome back, $name',
+                style: theme.textTheme.displaySmall),
+            const SizedBox(height: 24),
+
+            if (eventMode.isActive) ...[
+              _buildEventModeBar(context, ref, eventMode),
+              const SizedBox(height: 24),
+            ],
+
+            // 2. Follow-ups due (only when non-empty).
+            _buildFollowUps(context, followUpsAsync),
+
+            // 3. Recent.
+            _buildRecent(context, contactsAsync),
+
+            const SizedBox(height: 24),
+
+            // 4. Capture entry point.
+            _buildCaptureCard(context),
+
+            // Quiet event-mode entry — only when not already in an event, so the
+            // feature stays reachable without competing with the two sections.
+            if (!eventMode.isActive) ...[
+              const SizedBox(height: 16),
+              Center(
+                child: GestureDetector(
+                  onTap: () => _showStartEventSheet(context, ref),
+                  child: Text('start event mode →',
+                      style: theme.textTheme.bodySmall),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+
+  void _showStartEventSheet(BuildContext context, WidgetRef ref) {
+    final controller = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('start event mode',
+                style: Theme.of(sheetContext).textTheme.headlineMedium),
+            const SizedBox(height: 8),
+            Text(
+              'every contact you capture will be tagged with this event.',
+              style: Theme.of(sheetContext).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'event name',
+                hintText: 'e.g. saastr annual 2026',
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  final name = controller.text.trim();
+                  if (name.isEmpty) return;
+                  ref.read(eventModeProvider.notifier).state = EventModeState(
+                    isActive: true,
+                    eventName: name,
+                  );
+                  Navigator.pop(sheetContext);
+                },
+                child: const Text('start'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ----------------------------------------------------------- follow-ups ---
+
+  Widget _buildFollowUps(
+      BuildContext context, AsyncValue<List<Contact>> followUpsAsync) {
+    return followUpsAsync.maybeWhen(
+      data: (followUps) {
+        if (followUps.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionHeader(context, 'follow-ups due'),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 132,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: followUps.take(10).length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final c = followUps[index];
+                  final (caption, overdue) = _dueCaption(c.followUpDue);
+                  return SizedBox(
+                    width: 240,
+                    child: MemoryCard(
+                      name: c.name,
+                      secondaryLine: c.company,
+                      urgent: overdue,
+                      onTap: () => _openContact(context, c),
+                      footer: _dueFooter(context, caption, overdue),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _dueFooter(BuildContext context, String caption, bool overdue) {
+    final tokens = MossTokens.of(context);
+    return Text(
+      caption,
+      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: overdue ? tokens.danger : tokens.tierModerate,
+          ),
+    );
+  }
+
+  /// Returns the urgency caption and whether the follow-up is overdue.
+  (String, bool) _dueCaption(String? due) {
+    if (due == null) return ('follow up soon', false);
+    final parsed = DateTime.tryParse(due);
+    if (parsed == null) return ('follow up soon', false);
+    final today = DateTime.now();
+    final days = DateTime(parsed.year, parsed.month, parsed.day)
+        .difference(DateTime(today.year, today.month, today.day))
+        .inDays;
+    if (days < 0) return ('overdue', true);
+    if (days == 0) return ('due today', false);
+    if (days == 1) return ('due tomorrow', false);
+    return ('due in $days days', false);
+  }
+
+  // -------------------------------------------------------------- recent ---
+
+  Widget _buildRecent(
+      BuildContext context, AsyncValue<List<Contact>> contactsAsync) {
+    return contactsAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (contacts) {
+        if (contacts.isEmpty) {
+          return _emptyHint(context,
+              'no one yet — record someone you met and they\'ll show up here.');
+        }
+        final recent = contacts.take(5).toList();
+        final hasMore = contacts.length > recent.length;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionHeader(context, 'recent'),
+            const SizedBox(height: 12),
+            ...recent.map((c) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: MemoryCard(
+                    name: c.name,
+                    secondaryLine: _roleCompany(c),
+                    sharedGround: c.overlapPoints,
+                    onTap: () => _openContact(context, c),
+                    trailing: OverlapIndicator(score: c.overlapScore),
+                  ),
+                )),
+            if (hasMore)
+              Align(
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ContactsPage()),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('see all →',
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelLarge
+                            ?.copyWith(color: MossTokens.of(context).tierStrong)),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  String? _roleCompany(Contact c) {
+    final s = [c.role, c.company]
+        .where((v) => v != null && v.isNotEmpty)
+        .join(' · ');
+    return s.isEmpty ? null : s;
+  }
+
+  // ------------------------------------------------------- capture entry ---
+
+  Widget _buildCaptureCard(BuildContext context) {
+    final tokens = MossTokens.of(context);
+    final theme = Theme.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(2),
+      onTap: () => _openCapture(context),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: tokens.cardSurface,
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('record someone you met',
+                      style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text('private, only visible to you',
+                      style: theme.textTheme.bodySmall),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: tokens.tierStrong,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.mic,
+                  color: Theme.of(context).colorScheme.onPrimary, size: 22),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------- shared ---
+
+  Widget _sectionHeader(BuildContext context, String title) {
+    return Text(title, style: Theme.of(context).textTheme.headlineMedium);
+  }
+
+  Widget _emptyHint(BuildContext context, String text) {
+    final tokens = MossTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: tokens.cardSurface,
+        borderRadius: BorderRadius.circular(2),
+      ),
+      child: Text(text,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: tokens.textSecondary,
+                height: 1.4,
+              )),
     );
   }
 
   // -------------------------------------------------------- notifications ---
 
   Widget _buildNotificationsButton(BuildContext context, WidgetRef ref) {
+    final tokens = MossTokens.of(context);
     final notifsAsync = ref.watch(notificationsProvider);
     final unread = notifsAsync.maybeWhen(
       data: (d) => (d['unread_count'] as int?) ?? 0,
@@ -121,17 +392,17 @@ class HomePage extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.all(4),
               constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-              decoration: const BoxDecoration(
-                color: AppTheme.accentWarm,
+              decoration: BoxDecoration(
+                color: tokens.tierModerate,
                 shape: BoxShape.circle,
               ),
               child: Text(
                 unread > 9 ? '9+' : '$unread',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.onPrimary),
               ),
             ),
           ),
@@ -145,6 +416,7 @@ class HomePage extends ConsumerWidget {
       isScrollControlled: true,
       builder: (sheetContext) => Consumer(
         builder: (sheetContext, sheetRef, _) {
+          final tokens = MossTokens.of(sheetContext);
           final notifsAsync = sheetRef.watch(notificationsProvider);
           return DraggableScrollableSheet(
             expand: false,
@@ -156,7 +428,7 @@ class HomePage extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
                   child: Row(
                     children: [
-                      Text('Notifications',
+                      Text('notifications',
                           style: Theme.of(sheetContext)
                               .textTheme
                               .headlineMedium),
@@ -168,7 +440,7 @@ class HomePage extends ConsumerWidget {
                               .markAllNotificationsRead();
                           sheetRef.invalidate(notificationsProvider);
                         },
-                        child: const Text('Mark all read'),
+                        child: const Text('mark all read'),
                       ),
                     ],
                   ),
@@ -178,14 +450,14 @@ class HomePage extends ConsumerWidget {
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
                     error: (e, _) =>
-                        Center(child: Text('Couldn\'t load notifications')),
+                        const Center(child: Text('couldn\'t load notifications')),
                     data: (d) {
                       final items = (d['data'] as List?) ?? [];
                       if (items.isEmpty) {
                         return const Center(
                           child: Padding(
                             padding: EdgeInsets.all(32),
-                            child: Text('You\'re all caught up.'),
+                            child: Text('you\'re all caught up.'),
                           ),
                         );
                       }
@@ -201,8 +473,8 @@ class HomePage extends ConsumerWidget {
                                   ? Icons.notifications_none
                                   : Icons.notifications_active,
                               color: isRead
-                                  ? AppTheme.textHint
-                                  : AppTheme.accentColor,
+                                  ? tokens.textSecondary
+                                  : tokens.tierStrong,
                             ),
                             title: Text('${n['title'] ?? ''}'),
                             subtitle: n['body'] != null
@@ -235,520 +507,34 @@ class HomePage extends ConsumerWidget {
 
   Widget _buildEventModeBar(
       BuildContext context, WidgetRef ref, EventModeState eventMode) {
-    if (!eventMode.isActive) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: ActionChip(
-            avatar: const Icon(Icons.event, size: 18),
-            label: const Text('Start event mode'),
-            onPressed: () => _showStartEventSheet(context, ref),
-          ),
-        ),
-      );
-    }
+    final tokens = MossTokens.of(context);
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.accentColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
+        color: tokens.tierStrong.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
-          const Icon(Icons.event, color: AppTheme.accentColor, size: 18),
+          Icon(Icons.event, color: tokens.tierStrong, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Event: ${eventMode.eventName} · ${eventMode.captureCount} '
+              'event: ${eventMode.eventName} · ${eventMode.captureCount} '
               'capture${eventMode.captureCount == 1 ? '' : 's'}',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: AppTheme.accentColor),
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(color: tokens.tierStrong),
             ),
           ),
           TextButton(
             onPressed: () => ref.read(eventModeProvider.notifier).state =
                 const EventModeState(),
-            child: const Text('End'),
+            child: const Text('end'),
           ),
         ],
       ),
     );
-  }
-
-  void _showStartEventSheet(BuildContext context, WidgetRef ref) {
-    final controller = TextEditingController();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Start event mode',
-                style: Theme.of(sheetContext).textTheme.headlineMedium),
-            const SizedBox(height: 8),
-            Text(
-              'Every contact you capture will be tagged with this event.',
-              style: Theme.of(sheetContext).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Event name',
-                hintText: 'e.g. SaaStr Annual 2026',
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  final name = controller.text.trim();
-                  if (name.isEmpty) return;
-                  ref.read(eventModeProvider.notifier).state = EventModeState(
-                    isActive: true,
-                    eventName: name,
-                  );
-                  Navigator.pop(sheetContext);
-                },
-                child: const Text('Start'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ----------------------------------------------------------- follow-ups ---
-
-  Widget _buildFollowUps(
-      BuildContext context, AsyncValue<List<Contact>> followUpsAsync) {
-    return followUpsAsync.maybeWhen(
-      data: (followUps) {
-        if (followUps.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionHeader(context, 'Follow-ups due', badge: followUps.length),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 96,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: followUps.take(8).length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  final c = followUps[index];
-                  return GestureDetector(
-                    onTap: () => _openContact(context, c),
-                    child: Container(
-                      width: 220,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: AppTheme.surfaceColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color: AppTheme.accentColor.withValues(alpha: 0.3)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(c.name,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600, fontSize: 15),
-                              overflow: TextOverflow.ellipsis),
-                          if (c.company != null)
-                            Text(c.company!,
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppTheme.textSecondary),
-                                overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              const Icon(Icons.schedule,
-                                  size: 14, color: AppTheme.accentColor),
-                              const SizedBox(width: 4),
-                              Text('Follow up soon',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppTheme.accentColor,
-                                      fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-        );
-      },
-      orElse: () => const SizedBox.shrink(),
-    );
-  }
-
-  // -------------------------------------------------------- network stats ---
-
-  Widget _buildNetworkStats(
-      BuildContext context, AsyncValue<InsightsSummary> insightsAsync) {
-    return insightsAsync.when(
-      loading: () => const SizedBox(
-        height: 88,
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (s) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [AppTheme.primaryColor, AppTheme.primaryLight],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _statTile('${s.totalContacts}', 'Contacts'),
-            _divider(),
-            _statTile('${s.followUpsDue}', 'Due'),
-            _divider(),
-            _statTile('${s.starredContacts}', 'Starred'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statTile(String value, String label) {
-    return Column(
-      children: [
-        Text(value,
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold)),
-        const SizedBox(height: 2),
-        Text(label,
-            style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.7), fontSize: 12)),
-      ],
-    );
-  }
-
-  Widget _divider() =>
-      Container(width: 1, height: 36, color: Colors.white.withValues(alpha: 0.15));
-
-  // ----------------------------------------------------- recent contacts ---
-
-  Widget _buildRecentContacts(
-      BuildContext context, AsyncValue<List<Contact>> contactsAsync) {
-    return contactsAsync.when(
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (contacts) {
-        if (contacts.isEmpty) {
-          return _emptyHint(context,
-              'No contacts yet — record a voice note or use Quick Capture to start your network.');
-        }
-        final recent = contacts.take(6).toList();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionHeader(context, 'Recent contacts'),
-            const SizedBox(height: 12),
-            ...recent.map((c) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _contactRow(context, c),
-                )),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _contactRow(BuildContext context, Contact c) {
-    final pct = (c.overlapScore * 100).toInt();
-    final overlapColor = c.overlapScore >= 0.7
-        ? AppTheme.successColor
-        : c.overlapScore >= 0.4
-            ? AppTheme.warningColor
-            : AppTheme.errorColor;
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => _openContact(context, c),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.borderColor),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: _avatarColor(c.name),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Text(
-                  c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(c.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  Text(
-                    [c.role, c.company]
-                        .where((s) => s != null && s.isNotEmpty)
-                        .join(' • '),
-                    style: const TextStyle(
-                        fontSize: 12, color: AppTheme.textSecondary),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: overlapColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text('$pct%',
-                  style: TextStyle(
-                      color: overlapColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // -------------------------------------------------------- interest clusters ---
-
-  Widget _buildClusters(
-      BuildContext context, AsyncValue<InsightsSummary> insightsAsync) {
-    return insightsAsync.maybeWhen(
-      data: (s) {
-        if (s.clusters.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionHeader(context, 'Top interest clusters'),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: s.clusters.take(8).map((cluster) {
-                final label = (cluster['interest'] ??
-                        cluster['label'] ??
-                        cluster['name'] ??
-                        '')
-                    .toString();
-                final count = cluster['count'] ?? cluster['size'];
-                return Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceElevated,
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  child: Text(
-                    count != null ? '$label · $count' : label,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w500),
-                  ),
-                );
-              }).toList(),
-            ),
-          ],
-        );
-      },
-      orElse: () => const SizedBox.shrink(),
-    );
-  }
-
-  // -------------------------------------------------------------- shared ---
-
-  Widget _sectionHeader(BuildContext context, String title, {int? badge}) {
-    return Row(
-      children: [
-        Text(title, style: Theme.of(context).textTheme.headlineMedium),
-        if (badge != null && badge > 0) ...[
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppTheme.accentWarm,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text('$badge',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12)),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _emptyHint(BuildContext context, String text) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.borderColor),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.lightbulb_outline, color: AppTheme.accentColor),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(text,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textSecondary,
-                      height: 1.4,
-                    )),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ----------------------------------------------- onboarding tour overlays ---
-
-  Widget _buildTourOverlays(BuildContext context, WidgetRef ref) {
-    return Consumer(builder: (context, ref2, _) {
-      final tour = ref2.watch(onboardingTourProvider);
-      final demoList = ref2.watch(demoContactsProvider);
-      final memIndex = ref2.watch(memoryIndexProvider);
-
-      return Stack(children: [
-        if (tour.headlineVisible) const HeadlineOverlay(),
-        if (!tour.headlineVisible &&
-            tour.step.index >= OnboardingTourStep.demoContact.index &&
-            demoList.isNotEmpty)
-          const DemoContactCard(),
-        if (tour.step.index >= OnboardingTourStep.insightShown.index)
-          const InsightPanel(
-            title: 'You may want to follow up in ~5 days.',
-            subtitle:
-                'Strong alignment detected — high potential future value.',
-          ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceColor,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.borderColor),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.max,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Record someone you met',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyLarge
-                                ?.copyWith(fontWeight: FontWeight.bold)),
-                        Text('Private. Only visible to you.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: AppTheme.textSecondary)),
-                      ],
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => RecordingModal.show(context, ref),
-                    child: const Text('Record'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        if (!tour.signupCompleted && memIndex >= 1) ...[
-          Positioned.fill(
-              child: Container(color: Colors.black.withValues(alpha: 0.35))),
-          const Center(child: SignupGateOverlay()),
-        ],
-        if (tour.signupCompleted)
-          Positioned(
-              top: 80,
-              left: 16,
-              child: Text('Your memory system is now permanent.',
-                  style: Theme.of(context).textTheme.bodyLarge)),
-        if (tour.signupCompleted)
-          Positioned(
-            top: 20,
-            left: 16,
-            right: 16,
-            child: Dismissible(
-              key: const ValueKey('habit-banner'),
-              direction: DismissDirection.up,
-              onDismissed: (_) {},
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                    color: AppTheme.surfaceColor,
-                    borderRadius: BorderRadius.circular(8)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Expanded(
-                        child: Text(
-                            'After your next meeting, open Linkd and record one sentence about someone you met.')),
-                    IconButton(
-                        onPressed: () {}, icon: const Icon(Icons.close)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-      ]);
-    });
   }
 }

@@ -38,7 +38,7 @@ class _HeadlineOverlayState extends ConsumerState<HeadlineOverlay> with SingleTi
     return FadeTransition(
       opacity: _ctrl,
       child: Container(
-        color: AppTheme.surfaceColor.withValues(alpha: 0.95),
+        color: MossTokens.of(context).cardSurface.withValues(alpha: 0.95),
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(28.0),
@@ -53,7 +53,7 @@ class _HeadlineOverlayState extends ConsumerState<HeadlineOverlay> with SingleTi
                 const SizedBox(height: 12),
                 Text(
                   'Never forget what matters about the people you meet.',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: MossTokens.of(context).textSecondary),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -128,7 +128,7 @@ class _DemoContactCardState extends ConsumerState<DemoContactCard> {
             padding: const EdgeInsets.all(16),
             width: 360,
             decoration: BoxDecoration(
-              color: AppTheme.surfaceColor,
+              color: MossTokens.of(context).cardSurface,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -148,7 +148,7 @@ class _DemoContactCardState extends ConsumerState<DemoContactCard> {
                   duration: const Duration(milliseconds: 300),
                   child: Transform.translate(
                     offset: Offset(0, showLine2 ? 0 : 3),
-                    child: Text('Company: Acme Studio', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary)),
+                    child: Text('Company: Acme Studio', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: MossTokens.of(context).textSecondary)),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -184,7 +184,7 @@ class InsightPanel extends ConsumerWidget {
           width: 360,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppTheme.surfaceColor,
+            color: MossTokens.of(context).cardSurface,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
           ),
@@ -194,10 +194,11 @@ class InsightPanel extends ConsumerWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                  color: MossTokens.of(context).tierStrong.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.lightbulb, color: AppTheme.primaryColor),
+                child: Icon(Icons.lightbulb,
+                    color: MossTokens.of(context).tierStrong),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -206,7 +207,7 @@ class InsightPanel extends ConsumerWidget {
                   children: [
                     Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text(subtitle, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary)),
+                    Text(subtitle, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: MossTokens.of(context).textSecondary)),
                   ],
                 ),
               ),
@@ -289,7 +290,7 @@ class SignupGateOverlay extends ConsumerWidget {
         width: 520,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceColor,
+          color: MossTokens.of(context).cardSurface,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
@@ -306,7 +307,7 @@ class SignupGateOverlay extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Text('Don\'t risk losing what you\'ve just built.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary)),
+            Text('Don\'t risk losing what you\'ve just built.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: MossTokens.of(context).textSecondary)),
           ],
         ),
       ),

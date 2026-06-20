@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/memory_card.dart';
+import '../widgets/overlap_indicator.dart';
 import 'contact_detail_page.dart';
 
 /// Contacts list page with search, filtering, and quick-capture.
@@ -97,35 +99,14 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
     }
   }
 
-  // -------------------------------------------------------------- helpers ---
-
-  Color _overlapColor(double score) {
-    if (score >= 0.7) return AppTheme.successColor;
-    if (score >= 0.4) return AppTheme.warningColor;
-    return AppTheme.errorColor;
-  }
-
-  Color _avatarColor(String name) {
-    const colors = [
-      Color(0xFF6C63FF),
-      Color(0xFF00C896),
-      Color(0xFFFF6B6B),
-      Color(0xFFFFB547),
-      Color(0xFF00AEEF),
-      Color(0xFFFF6B9D),
-    ];
-    if (name.isEmpty) return colors.first;
-    return colors[name.hashCode.abs() % colors.length];
-  }
-
   // ------------------------------------------------------------------ UI ---
 
   @override
   Widget build(BuildContext context) {
+    final tokens = MossTokens.of(context);
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: Text('Contacts', style: Theme.of(context).textTheme.displaySmall),
+        title: Text('contacts', style: Theme.of(context).textTheme.displaySmall),
       ),
       body: Column(
         children: [
@@ -136,22 +117,23 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showQuickCaptureDialog(context),
-        backgroundColor: AppTheme.accentColor,
-        icon: const Icon(Icons.person_add, color: Colors.white),
-        label: const Text('Quick Capture',
-            style: TextStyle(color: Colors.white)),
+        backgroundColor: tokens.tierStrong,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        icon: const Icon(Icons.person_add_alt),
+        label: const Text('quick capture'),
       ),
     );
   }
 
   Widget _buildSearchBar() {
+    final tokens = MossTokens.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Search by name, company, or interest...',
-          prefixIcon: const Icon(Icons.search, color: AppTheme.textHint),
+          hintText: 'search by name, company, or interest',
+          prefixIcon: Icon(Icons.search, color: tokens.textSecondary),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear),
@@ -172,7 +154,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
       child: Row(
         children: [
           FilterChip(
-            label: const Text('All'),
+            label: const Text('all'),
             selected: _starredFilter == null,
             onSelected: (_) {
               setState(() => _starredFilter = null);
@@ -181,7 +163,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
           ),
           const SizedBox(width: 8),
           FilterChip(
-            label: const Text('⭐ Starred'),
+            label: const Text('starred'),
             selected: _starredFilter == true,
             onSelected: (selected) {
               setState(() => _starredFilter = selected ? true : null);
@@ -196,11 +178,11 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
               _loadContacts();
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(value: 'recent', child: Text('Most Recent')),
+              PopupMenuItem(value: 'recent', child: Text('most recent')),
               PopupMenuItem(
-                  value: 'strength', child: Text('Relationship Strength')),
-              PopupMenuItem(value: 'name', child: Text('Name')),
-              PopupMenuItem(value: 'overlap', child: Text('Overlap Score')),
+                  value: 'strength', child: Text('relationship strength')),
+              PopupMenuItem(value: 'name', child: Text('name')),
+              PopupMenuItem(value: 'overlap', child: Text('overlap score')),
             ],
           ),
         ],
@@ -223,23 +205,24 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
         itemCount: _contacts.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, index) => _buildContactCard(_contacts[index]),
       ),
     );
   }
 
   Widget _buildErrorState() {
+    final tokens = MossTokens.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.cloud_off, size: 48, color: AppTheme.textHint),
+            Icon(Icons.cloud_off, size: 48, color: tokens.textSecondary),
             const SizedBox(height: 16),
             Text(
-              'Couldn\'t load contacts',
+              'couldn\'t load contacts',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
@@ -251,7 +234,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _loadContacts,
-              child: const Text('Retry'),
+              child: const Text('retry'),
             ),
           ],
         ),
@@ -260,149 +243,59 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
   }
 
   Widget _buildEmptyState() {
+    final tokens = MossTokens.of(context);
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: AppTheme.accentColor.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.people_outline,
-                size: 56, color: AppTheme.accentColor),
-          ),
-          const SizedBox(height: 24),
-          Text('No contacts yet',
-              style: Theme.of(context).textTheme.displaySmall),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
-            child: Text(
-              'Record a voice note about someone you meet, and Linkd will create a smart relationship card.',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('no contacts yet',
+                style: Theme.of(context).textTheme.displaySmall),
+            const SizedBox(height: 12),
+            Text(
+              'record a voice note about someone you meet, and linkd will keep a smart relationship card for them.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppTheme.textSecondary,
+                    color: tokens.textSecondary,
                     height: 1.5,
                   ),
             ),
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: () => _showQuickCaptureDialog(context),
-            icon: const Icon(Icons.add),
-            label: const Text('Add your first contact'),
-          ),
-        ],
+            const SizedBox(height: 24),
+            OutlinedButton(
+              onPressed: () => _showQuickCaptureDialog(context),
+              child: const Text('add your first contact'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildContactCard(Contact contact) {
-    final overlapColor = _overlapColor(contact.overlapScore);
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.borderColor),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => _showContactDetail(contact),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: _avatarColor(contact.name),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Center(
-                  child: Text(
-                    contact.name.isNotEmpty
-                        ? contact.name[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            contact.name,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 16),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (contact.isStarred)
-                          const Icon(Icons.star,
-                              color: Colors.amber, size: 18),
-                      ],
-                    ),
-                    if (contact.company != null || contact.role != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        [contact.role, contact.company]
-                            .where((s) => s != null && s.isNotEmpty)
-                            .join(' • '),
-                        style: const TextStyle(
-                            fontSize: 13, color: AppTheme.textSecondary),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    if (contact.eventName != null) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.event,
-                              size: 14, color: AppTheme.textHint),
-                          const SizedBox(width: 4),
-                          Text(
-                            contact.eventName!,
-                            style: const TextStyle(
-                                fontSize: 12, color: AppTheme.textHint),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: overlapColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${(contact.overlapScore * 100).toInt()}%',
-                  style: TextStyle(
-                      color: overlapColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ),
+    final tokens = MossTokens.of(context);
+    final roleCompany = [contact.role, contact.company]
+        .where((s) => s != null && s.isNotEmpty)
+        .join(' · ');
+    final overdue =
+        contact.followUpDue != null && !contact.followUpCompleted;
+
+    return MemoryCard(
+      name: contact.name,
+      secondaryLine: roleCompany.isNotEmpty ? roleCompany : null,
+      body: contact.eventName != null ? 'met at ${contact.eventName}' : null,
+      sharedGround: contact.overlapPoints,
+      urgent: overdue,
+      onTap: () => _showContactDetail(contact),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (contact.isStarred) ...[
+            Icon(Icons.star, size: 16, color: tokens.tierModerate),
+            const SizedBox(width: 6),
+          ],
+          OverlapIndicator(score: contact.overlapScore),
+        ],
       ),
     );
   }
@@ -427,39 +320,38 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Quick Capture',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          title: Text('quick capture',
+              style: Theme.of(dialogContext).textTheme.headlineMedium),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: nameController,
                 decoration: const InputDecoration(
-                    labelText: 'Name', hintText: 'Who did you meet?'),
+                    labelText: 'name', hintText: 'who did you meet?'),
                 autofocus: true,
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: noteController,
                 decoration: const InputDecoration(
-                    labelText: 'Notes', hintText: 'What did you talk about?'),
+                    labelText: 'notes', hintText: 'what did you talk about?'),
                 maxLines: 3,
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: eventController,
                 decoration: const InputDecoration(
-                    labelText: 'Event (optional)',
-                    hintText: 'Conference, meetup, etc.'),
+                    labelText: 'event (optional)',
+                    hintText: 'conference, meetup, etc.'),
               ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed:
-                  saving ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('cancel'),
             ),
             ElevatedButton(
               onPressed: saving
@@ -483,7 +375,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                           messenger.showSnackBar(
                             const SnackBar(
                                 content: Text(
-                                    'Contact saved — processing in background...')),
+                                    'contact saved — processing in background')),
                           );
                           // Give the worker a moment, then refresh.
                           Future.delayed(const Duration(seconds: 2),
@@ -493,7 +385,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                         setDialogState(() => saving = false);
                         if (dialogContext.mounted) {
                           ScaffoldMessenger.of(dialogContext).showSnackBar(
-                            SnackBar(content: Text('Failed to save: $e')),
+                            SnackBar(content: Text('failed to save: $e')),
                           );
                         }
                       }
@@ -503,7 +395,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Save'),
+                  : const Text('save'),
             ),
           ],
         ),

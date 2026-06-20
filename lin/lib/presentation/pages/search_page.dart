@@ -53,7 +53,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final resultsAsync = ref.watch(searchResultsProvider);
 
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
         titleSpacing: 0,
         title: TextField(
@@ -62,7 +61,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           textInputAction: TextInputAction.search,
           onChanged: _onChanged,
           decoration: const InputDecoration(
-            hintText: 'Search contacts...',
+            hintText: 'search contacts',
             border: InputBorder.none,
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
@@ -88,15 +87,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   Widget _buildBody(String query, AsyncValue<List<Contact>> resultsAsync) {
     if (query.trim().length < 2) {
       return _hint(Icons.search,
-          'Search for contacts by name, company, or interest');
+          'search for contacts by name, company, or interest');
     }
     return resultsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => _hint(Icons.error_outline, 'Search failed: $e'),
+      error: (e, _) => _hint(Icons.error_outline, 'search failed: $e'),
       data: (results) {
         if (results.isEmpty) {
           return _hint(Icons.person_search,
-              'No contacts found for "${query.trim()}"');
+              'no contacts found for "${query.trim()}"');
         }
         return ListView.separated(
           padding: const EdgeInsets.all(16),
@@ -109,29 +108,31 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   }
 
   Widget _resultTile(Contact c) {
+    final tokens = MossTokens.of(context);
     return ListTile(
-      tileColor: AppTheme.surfaceColor,
+      tileColor: tokens.cardSurface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppTheme.borderColor),
+        borderRadius: BorderRadius.circular(2),
       ),
       leading: CircleAvatar(
-        backgroundColor: AppTheme.accentColor.withValues(alpha: 0.15),
+        backgroundColor: tokens.tierStrong.withValues(alpha: 0.15),
         child: Text(
           c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
-          style: const TextStyle(
-              color: AppTheme.accentColor, fontWeight: FontWeight.bold),
+          style: Theme.of(context)
+              .textTheme
+              .labelLarge
+              ?.copyWith(color: tokens.tierStrong),
         ),
       ),
-      title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+      title: Text(c.name, style: Theme.of(context).textTheme.titleLarge),
       subtitle: Text(
         [
           [c.role, c.company]
               .where((s) => s != null && s.isNotEmpty)
-              .join(' • '),
+              .join(' · '),
           if (c.interests.isNotEmpty) c.interests.take(3).join(', '),
         ].where((s) => s.isNotEmpty).join('\n'),
-        style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        style: Theme.of(context).textTheme.bodySmall,
       ),
       isThreeLine: c.interests.isNotEmpty,
       onTap: () => _openContact(c),
@@ -145,14 +146,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 48, color: AppTheme.textHint),
+            Icon(icon, size: 48, color: MossTokens.of(context).textSecondary),
             const SizedBox(height: 16),
             Text(text,
                 textAlign: TextAlign.center,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: AppTheme.textSecondary)),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: MossTokens.of(context).textSecondary)),
           ],
         ),
       ),

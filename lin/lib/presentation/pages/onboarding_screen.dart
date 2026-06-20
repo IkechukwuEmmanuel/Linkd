@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
@@ -8,8 +9,10 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
 import '../../presentation/providers/app_providers.dart';
+import '../widgets/facet_ring.dart';
+import 'personas_screen.dart';
 
-/// Onboarding wizard for creating initial personas
+/// Onboarding — typography-led entry into building the user's facets.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -20,13 +23,24 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final linkeLinkedInUrlController = TextEditingController();
   final AudioRecorder _recorder = AudioRecorder();
-  String? selectedFilePath;
   String? _pitchPath;
+  late final TapGestureRecognizer _speakTap;
+  late final TapGestureRecognizer _importTap;
+
+  @override
+  void initState() {
+    super.initState();
+    _speakTap = TapGestureRecognizer()..onTap = _recordVoicePitch;
+    _importTap = TapGestureRecognizer()
+      ..onTap = () => _showLinkedInDialog(context);
+  }
 
   @override
   void dispose() {
     linkeLinkedInUrlController.dispose();
     _recorder.dispose();
+    _speakTap.dispose();
+    _importTap.dispose();
     super.dispose();
   }
 
@@ -38,12 +52,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       canPop: !onboardingState.isProcessing,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Create Your Personas'),
           automaticallyImplyLeading: !onboardingState.isProcessing,
         ),
         body: SingleChildScrollView(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(28),
             child: _buildStepContent(context, onboardingState),
           ),
         ),
@@ -65,35 +78,52 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Widget _buildChooseMethodStep(BuildContext context) {
+    final tokens = MossTokens.of(context);
+    final theme = Theme.of(context);
+    final base = theme.textTheme.displayMedium;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-        Icon(
-          Icons.person_add,
-          size: 80,
-          color: AppTheme.primaryColor,
+        SizedBox(height: MediaQuery.of(context).size.height * 0.12),
+        Text('let\'s build your profile', style: theme.textTheme.headlineMedium),
+        const SizedBox(height: 28),
+        Text.rich(
+          TextSpan(
+            style: base,
+            children: [
+              const TextSpan(text: 'would you rather '),
+              TextSpan(
+                text: 'speak',
+                recognizer: _speakTap,
+                style: base?.copyWith(
+                  color: tokens.tierStrong,
+                  decoration: TextDecoration.underline,
+                  decorationColor: AppTheme.green100,
+                  decorationThickness: 3,
+                ),
+              ),
+              const TextSpan(text: ' it, or '),
+              TextSpan(
+                text: 'import',
+                recognizer: _importTap,
+                style: base?.copyWith(
+                  color: tokens.tierModerate,
+                  decoration: TextDecoration.underline,
+                  decorationColor: AppTheme.amber100,
+                  decorationThickness: 3,
+                ),
+              ),
+              const TextSpan(text: ' it?'),
+            ],
+          ),
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: 20),
         Text(
-          'Choose Your Onboarding Method',
-          style: Theme.of(context).textTheme.headlineSmall,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 32),
-        // Choice 1: Voice Pitch
-        MethodCard(
-          icon: Icons.mic,
-          title: 'Voice Pitch',
-          description: 'Record a 60-second professional pitch',
-          onTap: () => _recordVoicePitch(),
-        ),
-        const SizedBox(height: 16),
-        // Choice 2: LinkedIn Profile
-        MethodCard(
-          icon: Icons.link,
-          title: 'LinkedIn Profile',
-          description: 'Import your LinkedIn profile URL',
-          onTap: () => _showLinkedInDialog(context),
+          'speak a short pitch about your work and interests, or import your linkedin profile.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: tokens.textSecondary,
+            height: 1.5,
+          ),
         ),
       ],
     );
@@ -103,32 +133,31 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Enter LinkedIn Profile URL'),
+        title: const Text('import linkedin'),
         content: TextField(
           controller: linkeLinkedInUrlController,
           decoration: const InputDecoration(
-            hintText: 'https://linkedin.com/in/yourprofile',
-            border: OutlineInputBorder(),
+            hintText: 'https://linkedin.com/in/you',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('cancel'),
           ),
           ElevatedButton(
             onPressed: () {
               final url = linkeLinkedInUrlController.text.trim();
               if (url.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter a valid URL')),
+                  const SnackBar(content: Text('please enter a valid url')),
                 );
                 return;
               }
               Navigator.pop(context);
               _processLinkedInProfile(url);
             },
-            child: const Text('Process'),
+            child: const Text('import'),
           ),
         ],
       ),
@@ -142,8 +171,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (!status.isGranted) {
       messenger.showSnackBar(
         const SnackBar(
-          content: Text(
-              'Microphone access is required to record a voice pitch.'),
+          content:
+              Text('microphone access is required to record a voice pitch.'),
         ),
       );
       return;
@@ -157,87 +186,92 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       context: context,
       isDismissible: false,
       enableDrag: false,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) {
-          Future<void> start() async {
-            final dir = await getTemporaryDirectory();
-            _pitchPath =
-                '${dir.path}/pitch_${DateTime.now().millisecondsSinceEpoch}.m4a';
-            await _recorder.start(
-              const RecordConfig(
-                encoder: AudioEncoder.aacLc,
-                bitRate: 32000,
-                sampleRate: 16000,
-                numChannels: 1,
-              ),
-              path: _pitchPath!,
-            );
-            elapsed = 0;
-            timer = Timer.periodic(
-                const Duration(seconds: 1),
-                (_) => setSheetState(() => elapsed++));
-            setSheetState(() => isRecording = true);
-          }
-
-          Future<void> stop() async {
-            timer?.cancel();
-            final path = await _recorder.stop();
-            if (sheetContext.mounted) Navigator.pop(sheetContext);
-            if (path != null) _processVoicePitch(path);
-          }
-
-          final mm = (elapsed ~/ 60).toString().padLeft(2, '0');
-          final ss = (elapsed % 60).toString().padLeft(2, '0');
-
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  isRecording ? 'Recording your pitch...' : 'Record your pitch',
-                  style: Theme.of(sheetContext).textTheme.headlineMedium,
+      builder: (sheetContext) {
+        final tokens = MossTokens.of(sheetContext);
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            Future<void> start() async {
+              final dir = await getTemporaryDirectory();
+              _pitchPath =
+                  '${dir.path}/pitch_${DateTime.now().millisecondsSinceEpoch}.m4a';
+              await _recorder.start(
+                const RecordConfig(
+                  encoder: AudioEncoder.aacLc,
+                  bitRate: 32000,
+                  sampleRate: 16000,
+                  numChannels: 1,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tell us about your work, interests, and what you\'re looking for. Aim for ~60 seconds.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(sheetContext).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 24),
-                Text('$mm:$ss',
-                    style: Theme.of(sheetContext).textTheme.displaySmall),
-                const SizedBox(height: 24),
-                if (!isRecording)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(sheetContext),
-                        child: const Text('Cancel'),
-                      ),
-                      FloatingActionButton.large(
-                        heroTag: 'pitch-record',
-                        backgroundColor: AppTheme.accentColor,
-                        onPressed: start,
-                        child: const Icon(Icons.mic,
-                            color: Colors.white, size: 32),
-                      ),
-                    ],
-                  )
-                else
-                  FloatingActionButton.large(
-                    heroTag: 'pitch-stop',
-                    backgroundColor: Colors.red,
-                    onPressed: stop,
-                    child: const Icon(Icons.stop, color: Colors.white),
+                path: _pitchPath!,
+              );
+              elapsed = 0;
+              timer = Timer.periodic(
+                  const Duration(seconds: 1),
+                  (_) => setSheetState(() => elapsed++));
+              setSheetState(() => isRecording = true);
+            }
+
+            Future<void> stop() async {
+              timer?.cancel();
+              final path = await _recorder.stop();
+              if (sheetContext.mounted) Navigator.pop(sheetContext);
+              if (path != null) _processVoicePitch(path);
+            }
+
+            final mm = (elapsed ~/ 60).toString().padLeft(2, '0');
+            final ss = (elapsed % 60).toString().padLeft(2, '0');
+
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isRecording ? 'recording your pitch' : 'record your pitch',
+                    style: Theme.of(sheetContext).textTheme.headlineMedium,
                   ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          );
-        },
-      ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'tell us about your work, interests, and what you\'re looking for. aim for ~60 seconds.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(sheetContext).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 24),
+                  Text('$mm:$ss',
+                      style: Theme.of(sheetContext).textTheme.displaySmall),
+                  const SizedBox(height: 24),
+                  if (!isRecording)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('cancel'),
+                        ),
+                        FloatingActionButton.large(
+                          heroTag: 'pitch-record',
+                          backgroundColor: tokens.tierStrong,
+                          foregroundColor:
+                              Theme.of(sheetContext).colorScheme.onPrimary,
+                          onPressed: start,
+                          child: const Icon(Icons.mic, size: 32),
+                        ),
+                      ],
+                    )
+                  else
+                    FloatingActionButton.large(
+                      heroTag: 'pitch-stop',
+                      backgroundColor: tokens.danger,
+                      foregroundColor: AppTheme.darkTextPrimary,
+                      onPressed: stop,
+                      child: const Icon(Icons.stop),
+                    ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
     timer?.cancel();
   }
@@ -252,17 +286,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
     try {
       final result = await ref.read(uploadVoicePitchProvider(filePath).future);
-      final personasData = result['personas'] as List? ?? [];
-      final personas = personasData
-          .map((p) => Persona(
-                id: p['id'] ?? 0,
-                label: p['label'] ?? 'Unknown',
-                weight: (p['weight'] ?? 1).toDouble(),
-                confidenceScore: (p['confidence'] ?? 0.8).toDouble(),
-                createdAt: DateTime.now(),
-              ))
-          .toList();
-
+      final personas = _parsePersonas(result);
       if (mounted) {
         ref.read(onboardingStateProvider.notifier).state = OnboardingState(
           step: OnboardingStep.confirmPersonas,
@@ -275,9 +299,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           step: OnboardingStep.chooseMethod,
           error: e.toString(),
         );
-        messenger.showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        messenger.showSnackBar(SnackBar(content: Text('error: $e')));
       }
     } finally {
       try {
@@ -297,18 +319,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
     try {
       final result = await ref.read(uploadLinkedInProfileProvider(url).future);
-      // Convert personas map to Persona objects
-      final personasData = result['personas'] as List? ?? [];
-      final personas = personasData
-          .map((p) => Persona(
-            id: p['id'] ?? 0,
-            label: p['label'] ?? 'Unknown',
-            weight: (p['weight'] ?? 1).toDouble(),
-            confidenceScore: (p['confidence'] ?? 0.8).toDouble(),
-            createdAt: DateTime.now(),
-          ))
-          .toList();
-
+      final personas = _parsePersonas(result);
       if (mounted) {
         ref.read(onboardingStateProvider.notifier).state = OnboardingState(
           step: OnboardingStep.confirmPersonas,
@@ -321,36 +332,34 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           step: OnboardingStep.chooseMethod,
           error: e.toString(),
         );
-        messenger.showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        messenger.showSnackBar(SnackBar(content: Text('error: $e')));
       }
     }
+  }
+
+  List<Persona> _parsePersonas(Map<String, dynamic> result) {
+    final personasData = result['personas'] as List? ?? [];
+    return personasData
+        .map((p) => Persona(
+              id: p['id'] ?? 0,
+              label: p['label'] ?? 'unknown',
+              weight: (p['weight'] ?? 1).toDouble(),
+              confidenceScore: (p['confidence'] ?? 0.8).toDouble(),
+              createdAt: DateTime.now(),
+            ))
+        .toList();
   }
 
   Widget _buildProcessingStep(BuildContext context, OnboardingState state) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const CircularProgressIndicator(),
+        SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+        const Center(child: CircularProgressIndicator()),
         const SizedBox(height: 32),
-        Text(
-          'Processing Your Profile...',
-          style: Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 16),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: state.progress / 100,
-            minHeight: 8,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '${state.progress}%',
-          style: Theme.of(context).textTheme.bodyLarge,
+        Center(
+          child: Text('reading your profile',
+              style: Theme.of(context).textTheme.headlineMedium),
         ),
       ],
     );
@@ -358,170 +367,76 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   Widget _buildConfirmPersonasStep(BuildContext context, OnboardingState state) {
     final personas = state.generatedPersonas ?? [];
+    final tokens = MossTokens.of(context);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          Icons.check_circle,
-          size: 80,
-          color: AppTheme.secondaryColor,
-        ),
+        const SizedBox(height: 12),
+        Text('we found ${personas.length} facets',
+            style: Theme.of(context).textTheme.displaySmall),
+        const SizedBox(height: 8),
+        Text('these are the facets of how you show up. confirm them later.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: tokens.textSecondary)),
         const SizedBox(height: 24),
-        Text(
-          'Great! We found ${personas.length} personas',
-          style: Theme.of(context).textTheme.headlineSmall,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'Review and confirm your personas:',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 16),
-        ...personas.map((p) => Card(
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.2),
-              child: Text(
-                p.label[0].toUpperCase(),
-                style: const TextStyle(
-                  color: AppTheme.primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
+        ...personas.map((p) => Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Row(
+                children: [
+                  FacetRing(
+                    strength: facetStrength(p),
+                    tier: facetTier(p),
+                    size: 44,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(p.label,
+                        style: Theme.of(context).textTheme.headlineLarge),
+                  ),
+                ],
               ),
-            ),
-            title: Text(p.label),
-            subtitle: Text('Weight: ${p.weight.toStringAsFixed(1)}/10'),
+            )),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () {
+              ref.read(onboardingStateProvider.notifier).state =
+                  OnboardingState(step: OnboardingStep.complete);
+            },
+            child: const Text('looks right, continue'),
           ),
-        )),
-        const SizedBox(height: 32),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () {
-                  ref.read(onboardingStateProvider.notifier).state = OnboardingState(
-                    step: OnboardingStep.chooseMethod,
-                  );
-                },
-                child: const Text('Back'),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () {
-                  ref.read(onboardingStateProvider.notifier).state = OnboardingState(
-                    step: OnboardingStep.complete,
-                  );
-                },
-                child: const Text('Confirm'),
-              ),
-            ),
-          ],
         ),
       ],
     );
   }
 
   Widget _buildCompleteStep(BuildContext context) {
+    final tokens = MossTokens.of(context);
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          Icons.celebration,
-          size: 100,
-          color: AppTheme.secondaryColor,
-        ),
-        const SizedBox(height: 32),
-        Text(
-          'All Set!',
-          style: Theme.of(context).textTheme.displaySmall?.copyWith(
-            color: AppTheme.secondaryColor,
-          ),
-          textAlign: TextAlign.center,
-        ),
+        SizedBox(height: MediaQuery.of(context).size.height * 0.18),
+        Text('you\'re all set', style: Theme.of(context).textTheme.displayLarge),
         const SizedBox(height: 16),
         Text(
-          'Your personas are ready. Start recording interactions to discover more insights!',
+          'your facets are ready. start capturing the people you meet, and linkd will find where you overlap.',
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: AppTheme.textSecondary,
-          ),
-          textAlign: TextAlign.center,
+                color: tokens.textSecondary,
+                height: 1.5,
+              ),
         ),
-        const SizedBox(height: 48),
+        const SizedBox(height: 40),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Go to Dashboard'),
+            child: const Text('go to linkd'),
           ),
         ),
       ],
-    );
-  }
-}
-
-class MethodCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String description;
-  final VoidCallback onTap;
-
-  const MethodCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          border: Border.all(color: AppTheme.borderColor, width: 2),
-          borderRadius: BorderRadius.circular(12),
-          color: AppTheme.surfaceColor,
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 48,
-              color: AppTheme.primaryColor,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.arrow_forward,
-              color: AppTheme.primaryColor,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
