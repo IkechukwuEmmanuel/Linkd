@@ -1,7 +1,7 @@
 /* ============================================================
-   Linkd landing page — extends the app's "moss & cream" system.
+   Linkd landing page, extending the app's "moss & cream" system.
    Palette is locked: moss (dominant), cream (bg), ink (text),
-   clay (single accent — CTA button + the hero thread line ONLY).
+   clay (single accent: CTA button + logo swirl).
    ============================================================ */
 
 :root {
@@ -13,18 +13,19 @@
   --clay-deep: #9E5739;
 
   --card: #FBF9F2;      /* raised surface, a touch lighter than cream */
-  --fold: #E3DCC9;      /* folded-corner shade — like kept paper */
+  --fold: #E3DCC9;      /* folded-corner shade, like kept paper */
   --hairline: #DED8C8;  /* quiet dividers/borders */
   --muted: #6F6B5F;     /* secondary ink */
 
-  /* The hero "kept note" is warmer than the rest of the UI: soft paper,
-     soft ink-brown text, a quiet taupe thread (clay stays CTA-only). */
+  /* The hero card is warmer than the rest of the UI: soft paper, soft
+     ink-brown text, a quiet taupe thread for active connections. */
   --paper: #FBF8EF;
-  --paper-ink: #4A4034;       /* soft brown ink — body on the card */
+  --paper-ink: #4A4034;        /* soft brown ink, body on the card */
   --paper-ink-strong: #38301F; /* the serif name */
-  --paper-muted: #938776;     /* quiet labels / descriptors */
-  --thread: #C0B49A;          /* the connection-thread line */
-  --moss-soft: #8FA07F;       /* the lighter "them" overlap circle */
+  --paper-muted: #938776;      /* quiet labels / descriptors */
+  --thread: #C0B49A;           /* the active connection thread line */
+  --pending: #A9A395;          /* the gray, not-yet-made "you to Linkd" line */
+  --moss-soft: #8FA07F;        /* the lighter "them" overlap circle */
 
   --serif: "Fraunces", Georgia, "Times New Roman", serif;
   --sans: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -57,7 +58,7 @@ body {
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* Skip link — visible on focus only */
+/* Skip link, visible on focus only */
 .skip-link {
   position: absolute; left: 16px; top: -48px; z-index: 10;
   background: var(--ink); color: var(--cream);
@@ -65,6 +66,34 @@ body {
   text-decoration: none; transition: top .15s ease;
 }
 .skip-link:focus { top: 16px; }
+
+/* ------------------------------- nav --------------------------------- */
+
+.site-nav {
+  border-bottom: 1px solid var(--hairline);
+  background: var(--cream);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+.nav-mark { display: block; width: 34px; height: 34px; }
+.nav-wordmark {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1;
+}
 
 /* ----------------------------- typography ----------------------------- */
 
@@ -88,7 +117,7 @@ p:last-child { margin-bottom: 0; }
 
 /* ------------------------------- hero -------------------------------- */
 
-.hero { padding: clamp(48px, 8vw, 96px) 0 clamp(40px, 6vw, 72px); }
+.hero { padding: clamp(40px, 7vw, 84px) 0 clamp(40px, 6vw, 72px); }
 
 .hero-grid {
   display: grid;
@@ -103,7 +132,6 @@ p:last-child { margin-bottom: 0; }
 .signup { margin-top: 32px; max-width: 440px; }
 .signup .field { margin-bottom: 16px; }
 .signup label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
-.signup label .opt { color: #9b9587; font-weight: 400; }
 
 .signup input,
 .signup select {
@@ -133,7 +161,7 @@ p:last-child { margin-bottom: 0; }
   border-color: var(--moss);
 }
 
-/* primary CTA — the ONLY clay element besides the hero thread line */
+/* primary CTA, the one clay UI element */
 .btn-primary {
   display: inline-block;
   width: 100%;
@@ -157,7 +185,7 @@ p:last-child { margin-bottom: 0; }
 .form-status.is-error { color: var(--clay-deep); }
 .form-status.is-success { color: var(--moss); }
 
-/* --------------------- hero signature: memory card -------------------- */
+/* --------------------- hero signature: the card ---------------------- */
 
 .hero-card-stage { display: flex; justify-content: center; }
 
@@ -168,12 +196,12 @@ p:last-child { margin-bottom: 0; }
   background: var(--paper);
   color: var(--paper-ink);
   border-radius: 3px;
-  padding: 32px 32px 34px;
+  padding: 30px 32px 32px;
   box-shadow: 0 1px 1px rgba(74, 64, 52, 0.04),
               0 24px 48px -30px rgba(74, 64, 52, 0.55);
 }
 
-/* Soft folded corner — a gentle diagonal fold with a shadow gradient
+/* Soft folded corner: a gentle diagonal fold with a shadow gradient
    (lighter at the outer tip, deeper at the crease), not a flat triangle. */
 .memory-card .fold {
   position: absolute;
@@ -185,13 +213,60 @@ p:last-child { margin-bottom: 0; }
   box-shadow: -3px 3px 7px -2px rgba(74, 64, 52, 0.22);
 }
 
-/* lowercase, quiet — no tracked uppercase UI label */
-.card-meta { font-size: 0.82rem; color: var(--paper-muted); margin: 0 0 22px; }
-.card-name { font-family: var(--serif); font-size: 1.55rem; color: var(--paper-ink-strong); margin: 0; line-height: 1.12; }
+/* small, quiet, lowercase section labels (no tracked uppercase) */
+.pending-label,
+.match-label {
+  font-size: 0.8rem;
+  color: var(--paper-muted);
+  margin: 0 0 12px;
+}
+
+/* (a) the pending connection: you to Linkd.
+   The longest line on the card, drawn gray (clearly inactive) with dense dots,
+   so it reads as the connection that has not been formed yet. */
+.pending-line {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pending-node {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.18rem;
+  color: var(--paper-ink);
+  white-space: nowrap;
+}
+.node-linkd { font-style: normal; font-weight: 500; color: var(--paper-ink-strong); }
+.pending-thread {
+  flex: 1 1 auto;
+  min-width: 48px;
+  height: 3px;
+  /* dense gray dots: ~2px dot every 5px, noticeably tighter than a CSS dotted
+     border, and gray rather than the clay accent or the warm taupe thread. */
+  background-image: radial-gradient(circle, var(--pending) 1.1px, transparent 1.5px);
+  background-size: 5px 3px;
+  background-repeat: repeat-x;
+  background-position: left center;
+}
+.pending-note {
+  font-size: 0.9rem;
+  color: var(--paper-muted);
+  margin: 12px 0 0;
+  line-height: 1.5;
+}
+
+.card-divide {
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  margin: 24px 0;
+}
+
+/* (b) the example match: the active connection language, visually unlike the
+   gray pending line above (warm taupe thread, overlap circles, percentage). */
+.card-name { font-family: var(--serif); font-size: 1.5rem; color: var(--paper-ink-strong); margin: 0; line-height: 1.12; }
 .card-sub  { font-size: 0.95rem; color: var(--paper-muted); margin: 6px 0 0; }
 
-/* the "you ··· name" connection thread — italic serif + a single quiet line */
-.thread { display: flex; align-items: center; gap: 16px; margin: 28px 0 0; }
+.thread { display: flex; align-items: center; gap: 16px; margin: 22px 0 0; }
 .thread .node {
   font-family: var(--serif);
   font-style: italic;
@@ -204,9 +279,8 @@ p:last-child { margin-bottom: 0; }
 .thread-dashed { border-top: 2px dashed var(--thread); }
 .thread-solid  { border-top: 2px solid  var(--thread); }
 
-/* match strength: overlapping circles + a quiet trailing percentage
-   (the contact-list row visual, applied with restraint) */
-.match { display: flex; align-items: center; gap: 9px; margin: 18px 0 0; }
+/* match strength: overlapping circles + a quiet trailing percentage */
+.match { display: flex; align-items: center; gap: 9px; margin: 16px 0 0; }
 .overlap { display: inline-flex; align-items: center; }
 .circ {
   width: 15px; height: 15px; border-radius: 50%;
@@ -217,10 +291,10 @@ p:last-child { margin-bottom: 0; }
 .circ-them { background: var(--moss-soft); margin-left: -6px; }
 .match-pct { font-size: 0.86rem; color: var(--paper-muted); }
 
-.sg-text { font-size: 1rem; color: var(--paper-ink); margin: 20px 0 0; line-height: 1.5; }
+.sg-text { font-size: 1rem; color: var(--paper-ink); margin: 18px 0 0; line-height: 1.5; }
 
-/* live update: a brief, restrained fade when the role changes (name typing
-   updates instantly — no per-keystroke animation) */
+/* live update: a brief, restrained fade when the intent changes (name typing
+   updates instantly, no per-keystroke animation) */
 .card-name, .card-sub, .sg-text, .match, [data-them] {
   transition: opacity 0.22s ease;
 }
@@ -230,7 +304,7 @@ p:last-child { margin-bottom: 0; }
 .memory-card.is-swapping .match,
 .memory-card.is-swapping [data-them] { opacity: 0.2; }
 
-/* entrance: a memory surfacing — rise + fade, then settle */
+/* entrance: a memory surfacing, rise + fade, then settle */
 @keyframes card-surface {
   from { opacity: 0; transform: translateY(16px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -272,29 +346,25 @@ p:last-child { margin-bottom: 0; }
 .stage h3 { margin-bottom: 8px; color: var(--ink); }
 .stage p { color: var(--muted); margin: 0; font-size: 0.98rem; }
 
-/* closing CTA — moss band makes the dominant color land at the end */
+/* closing moss band: the dominant color lands at the end. Now a "get involved"
+   invitation, distinct from the waitlist form above. */
 .closing { background: var(--moss); color: var(--cream); border: none; text-align: center; }
 .closing h2 { color: var(--cream); }
-.closing p { color: rgba(242,238,227,0.86); margin: 0 auto; max-width: 30em; }
+.closing p { color: rgba(242,238,227,0.88); margin: 0 auto; max-width: 34em; }
 
-.signup-compact {
-  margin: 28px auto 0;
-  max-width: 460px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  align-items: start;
-  text-align: left;
+.involved-cta { margin-top: 28px; }
+.contact-link {
+  display: inline-block;
+  font-family: var(--serif);
+  font-size: clamp(1.15rem, 2.4vw, 1.5rem);
+  color: var(--cream);
+  text-decoration: none;
+  border-bottom: 2px solid rgba(242,238,227,0.45);
+  padding-bottom: 2px;
+  transition: border-color .15s ease, opacity .15s ease;
 }
-.signup-compact .field { margin: 0; }
-.signup-compact .btn-primary { width: auto; white-space: nowrap; }
-.signup-compact .form-status { grid-column: 1 / -1; margin-top: 4px; text-align: center; }
-/* inputs on the moss band */
-.closing .signup input { background: #F7F4EA; border-color: transparent; }
-.closing .form-status.is-success { color: #DDE6C9; }
-.closing .form-status.is-error { color: #F2D7C9; }
-.closing .signup input:focus-visible { outline: 2px solid var(--cream); outline-offset: 2px; }
-.closing .btn-primary:focus-visible { outline: 2px solid var(--cream); outline-offset: 2px; }
+.contact-link:hover { border-bottom-color: var(--cream); }
+.contact-link:focus-visible { outline: 2px solid var(--cream); outline-offset: 4px; border-radius: 2px; }
 
 /* ------------------------------ footer ------------------------------- */
 
@@ -317,7 +387,5 @@ p:last-child { margin-bottom: 0; }
 
 @media (max-width: 520px) {
   body { font-size: 16px; }
-  .signup-compact { grid-template-columns: 1fr; }
-  .signup-compact .btn-primary { width: 100%; }
   .footer .wrap { flex-direction: column; align-items: flex-start; gap: 8px; }
 }

@@ -1,14 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 156 44" role="img" aria-label="Linkd">
-  <!-- Primary lockup: the overlap mark + "Linkd" in Fraunces (the product serif).
-       Wordmark falls back to Georgia/serif where Fraunces isn't loaded; outline
-       to paths for print/portable use. Mark moss + clay; wordmark ink — for the
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 44" role="img" aria-label="Linkd">
+  <!-- Primary lockup: the overlap mark (two circles + mind/memory spiral) plus
+       "Linkd" in Fraunces, the product serif, falling back to Georgia where
+       Fraunces is not loaded. Moss rings, clay swirl, ink wordmark, for the
        cream background used across the site. -->
-  <defs>
-    <clipPath id="lensLk"><circle cx="14" cy="22" r="9"/></clipPath>
-  </defs>
-  <circle cx="14" cy="22" r="9" fill="#4A5D43"/>
-  <circle cx="24" cy="22" r="9" fill="#4A5D43"/>
-  <circle cx="24" cy="22" r="9" fill="#B5694A" clip-path="url(#lensLk)"/>
+  <g fill="none" stroke="#4A5D43" stroke-width="2.6">
+    <circle cx="15" cy="22" r="8.4"/>
+    <circle cx="24" cy="22" r="8.4"/>
+  </g>
+  <path d="M19.5 18 a 3.3 3.3 0 1 1 -3.1 4.5 a 1.7 1.7 0 1 1 2.5 -1.8"
+        fill="none" stroke="#B5694A" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round"/>
   <text x="44" y="31" font-family="Fraunces, Georgia, 'Times New Roman', serif"
         font-size="27" font-weight="500" letter-spacing="-0.01em" fill="#2B2A26">Linkd</text>
 </svg>

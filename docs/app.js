@@ -1,4 +1,4 @@
-/* Linkd landing — Supabase waitlist insert + live hero-card personalization.
+/* Linkd landing. Supabase waitlist insert + live hero-card personalization.
 
    The anon public key is safe to expose: per RLS it can INSERT only, never
    read/update/delete (see the waitlist_signups policy). */
@@ -39,12 +39,21 @@
     if (!form) return;
     var statusEl = form.querySelector("[data-status]");
     var button = form.querySelector("button[type=submit]");
+    var nameInput = form.querySelector("input[name=fname]");
     var emailInput = form.querySelector("input[type=email]");
     var roleInput = form.querySelector("select[name=role]");
     var defaultLabel = button.getAttribute("data-default-label") || button.textContent;
 
     form.addEventListener("submit", async function (e) {
       e.preventDefault();
+
+      // Name is required. Validate it first, with a specific, on-tone message.
+      var name = (nameInput && nameInput.value ? nameInput.value : "").trim();
+      if (!name) {
+        setStatus(statusEl, "Add your first name so we know what to call you.", "error");
+        if (nameInput) nameInput.focus();
+        return;
+      }
 
       var email = (emailInput.value || "").trim();
       if (!emailInput.checkValidity() || !email) {
@@ -53,7 +62,7 @@
         return;
       }
 
-      var payload = { email: email.toLowerCase() };
+      var payload = { email: email.toLowerCase(), first_name: name };
       if (roleInput && roleInput.value) payload.role_or_use_case = roleInput.value;
 
       button.disabled = true;
@@ -70,14 +79,14 @@
           setStatus(
             statusEl,
             "You're on the waitlist. We'll email " + email +
-              " when it's your turn — no spam in between.",
+              " when it's your turn. No spam in between.",
             "success"
           );
           return;
         }
 
         if (res.status === 409) {
-          setStatus(statusEl, "You're already on the list — we've got this email saved.", "success");
+          setStatus(statusEl, "You're already on the list. We've got this email saved.", "success");
         } else if (res.status === 401 || res.status === 403) {
           setStatus(statusEl, "We couldn't save that right now. Please try again shortly.", "error");
         } else {
@@ -89,13 +98,13 @@
           setStatus(
             statusEl,
             dup
-              ? "You're already on the list — we've got this email saved."
+              ? "You're already on the list. We've got this email saved."
               : "Something went wrong on our end. Please try again.",
             dup ? "success" : "error"
           );
         }
       } catch (err) {
-        setStatus(statusEl, "Couldn't reach the server — check your connection and try again.", "error");
+        setStatus(statusEl, "Couldn't reach the server. Check your connection and try again.", "error");
       } finally {
         if (button.textContent === "Joining…") button.textContent = defaultLabel;
         button.disabled = false;
@@ -104,71 +113,48 @@
   }
 
   wireForm(document.getElementById("waitlist"));
-  wireForm(document.getElementById("waitlist-closing"));
 
   /* -------------------------------------------- hero-card personalization ---
 
-     A small, curated role → example set (not generated per load). Selecting a
-     role swaps the matched person, the shared-ground line, the thread style,
-     and reseeds a believable match %. Typing a first name updates the "you"
-     side of the thread live. */
+     A small, curated intent -> example set (not generated per load). The form's
+     "what brings you here" is intent based, not job title based, so each broad
+     intent still resolves to one concrete, specific match. Picking an intent
+     swaps the matched person, the shared-ground line, the active thread style,
+     and reseeds a believable match percentage. Typing a first name updates the
+     visitor's name on both the gray "you to Linkd" line and the example match. */
 
   var EXAMPLES = {
     _default: {
-      meta: "kept note · sf climate week",
       name: "Amara Osei", first: "amara",
-      descriptor: "co-founder · tidal carbon startup",
-      ground: "both backing early ocean-carbon teams",
+      descriptor: "someone you met once, briefly",
+      ground: "the detail you would have lost by next week",
     },
-    Founder: {
-      meta: "kept note · sf climate week",
+    building: {
       name: "Priya Nair", first: "priya",
-      descriptor: "partner · early-stage climate fund",
-      ground: "she funds the exact stage you're raising at",
+      descriptor: "partner at a seed-stage fund",
+      ground: "she writes first checks at exactly the stage you're at",
     },
-    Investor: {
-      meta: "kept note · founder dinner",
+    investing: {
       name: "Daniel Cho", first: "daniel",
-      descriptor: "founder · grid-storage startup",
-      ground: "raising in the space your last memo covered",
+      descriptor: "founder, grid-storage, raising now",
+      ground: "building in the space your last bet was about",
     },
-    Sales: {
-      meta: "kept note · saas meetup",
-      name: "Rosa Méndez", first: "rosa",
-      descriptor: "vp ops · mid-market logistics",
-      ground: "her team is scoping the problem you solve",
-    },
-    Recruiter: {
-      meta: "kept note · engineering mixer",
+    hiring: {
       name: "Tomás Alvarez", first: "tomás",
-      descriptor: "staff engineer · payments background",
-      ground: "fits the senior role you're trying to fill",
+      descriptor: "staff engineer, quietly open to a move",
+      ground: "fits the senior role you've been trying to fill",
     },
-    Student: {
-      meta: "kept note · campus talk",
+    opportunity: {
       name: "Lena Park", first: "lena",
-      descriptor: "alum · research lead in robotics",
-      ground: "works in the field you're heading into",
+      descriptor: "head of eng on a team that's hiring",
+      ground: "her team is opening the kind of role you want",
     },
-    Consultant: {
-      meta: "kept note · industry summit",
-      name: "Mark Reilly", first: "mark",
-      descriptor: "coo · regional healthcare group",
-      ground: "owns the change you were brought in to advise",
-    },
-    "Event Organizer": {
-      meta: "kept note · last year's summit",
-      name: "Hana Suzuki", first: "hana",
-      descriptor: "speaker · two events back",
-      ground: "worth bringing back to keynote this year",
-    },
-    "Community Leader": {
-      meta: "kept note · community meetup",
+    community: {
       name: "Ifeoma Eze", first: "ifeoma",
-      descriptor: "member · building in fintech",
-      ground: "perfect to introduce to your fintech circle",
+      descriptor: "organizer of a 2,000-person community",
+      ground: "her circle overlaps the people you're gathering",
     },
-    Other: null, // falls back to _default
+    other: null, // falls back to _default
   };
 
   var card = document.getElementById("memoryCard");
@@ -176,11 +162,12 @@
   var roleSelect = document.getElementById("role");
 
   if (card) {
+    // There are two "you" nodes now: the gray pending line and the example
+    // match thread. Both follow what the visitor types.
+    var youNodes = card.querySelectorAll("[data-you]");
     var el = {
-      meta: card.querySelector("[data-meta]"),
       name: card.querySelector("[data-name]"),
       descriptor: card.querySelector("[data-descriptor]"),
-      you: card.querySelector("[data-you]"),
       them: card.querySelector("[data-them]"),
       thread: card.querySelector("[data-thread]"),
       pct: card.querySelector("[data-pct]"),
@@ -196,21 +183,27 @@
       return v ? v.toLowerCase() : "you";
     }
 
-    // 78–94, with the thread style following the strength band.
+    function setYou() {
+      var v = youName();
+      for (var i = 0; i < youNodes.length; i++) youNodes[i].textContent = v;
+    }
+
+    // The example is an active connection, so bias to dashed/solid (84+), never
+    // the sparse dotted style. That keeps it clearly distinct from the gray,
+    // deliberately-unmade "you to Linkd" line above it.
     function reseedMatch() {
-      var pct = 78 + Math.floor(Math.random() * 17);
-      var style = pct >= 89 ? "thread-solid" : pct >= 84 ? "thread-dashed" : "thread-dotted";
+      var pct = 85 + Math.floor(Math.random() * 11); // 85..95
+      var style = pct >= 90 ? "thread-solid" : "thread-dashed";
       el.pct.textContent = pct + "%";
       el.thread.className = "thread-line " + style;
     }
 
     function writeExample(ex) {
-      el.meta.textContent = ex.meta;
       el.name.textContent = ex.name;
       el.descriptor.textContent = ex.descriptor;
       el.ground.textContent = ex.ground;
       el.them.textContent = ex.first;
-      el.you.textContent = youName();
+      setYou();
     }
 
     function applyRole(roleValue, reseed) {
@@ -231,14 +224,12 @@
       }, 130);
     }
 
-    // Live name update — instant, no per-keystroke animation.
+    // Live name update, instant, no per-keystroke animation.
     if (fnameInput) {
-      fnameInput.addEventListener("input", function () {
-        el.you.textContent = youName();
-      });
+      fnameInput.addEventListener("input", setYou);
     }
 
-    // Role change — swap the example + reseed the match.
+    // Intent change, swap the example + reseed the match.
     if (roleSelect) {
       roleSelect.addEventListener("change", function () {
         applyRole(roleSelect.value, true);
