@@ -32,11 +32,15 @@ dependencies:
   just_audio: ^0.9.46
   speech_to_text: ^7.3.0
   permission_handler: ^11.3.1
+  path_provider: ^2.1.4
 
   # Networking
   dio: ^5.4.0
   http: ^1.2.0
   graphql_flutter: ^5.1.2
+
+  # Auth (Supabase)
+  supabase_flutter: ^2.5.6
 
   # Storage
   shared_preferences: ^2.2.2
@@ -60,9 +64,8 @@ dependencies:
   confetti: ^0.7.0
   shimmer: ^3.0.0
 
-  # Firebase (internally compatible set)
+  # Firebase (auth handled by Supabase, not Firebase Auth)
   firebase_core: ^2.32.0
-  firebase_auth: ^4.16.0
   firebase_messaging: ^14.7.10
   firebase_analytics: ^10.10.7
   firebase_crashlytics: ^3.5.7
@@ -74,6 +77,9 @@ dependencies:
   google_ml_kit: ^0.21.0 
   
   flutter_local_notifications: ^20.1.0
+
+  # Typography
+  google_fonts: ^6.2.1
 
   # Utility
   intl: ^0.19.0

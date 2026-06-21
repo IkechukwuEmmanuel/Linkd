@@ -3,8 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/entities.dart';
+import '../providers/app_providers.dart';
+import '../providers/auth_provider.dart';
+import '../widgets/connection_thread.dart';
+import '../widgets/memory_card.dart';
 
-/// Full-screen contact detail page with relationship intelligence.
+/// Full-screen contact detail — a kept "memory card" with relationship context.
+///
+/// Shows relationship strength (the [ConnectionThread]) at the top of the card.
+/// It does NOT show match-strength overlap circles — that lives only in list
+/// rows. These are intentionally different screens answering different questions.
 class ContactDetailPage extends ConsumerStatefulWidget {
   final Contact contact;
 
@@ -14,14 +22,10 @@ class ContactDetailPage extends ConsumerStatefulWidget {
   ConsumerState<ContactDetailPage> createState() => _ContactDetailPageState();
 }
 
-class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-  late Animation<double> _fadeAnim;
+class _ContactDetailPageState extends ConsumerState<ContactDetailPage> {
   late Contact _contact;
   bool _isEditing = false;
 
-  // Edit controllers
   late TextEditingController _nameCtrl;
   late TextEditingController _companyCtrl;
   late TextEditingController _roleCtrl;
@@ -33,13 +37,6 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
   void initState() {
     super.initState();
     _contact = widget.contact;
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
-    _animController.forward();
-
     _nameCtrl = TextEditingController(text: _contact.name);
     _companyCtrl = TextEditingController(text: _contact.company ?? '');
     _roleCtrl = TextEditingController(text: _contact.role ?? '');
@@ -50,7 +47,6 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
 
   @override
   void dispose() {
-    _animController.dispose();
     _nameCtrl.dispose();
     _companyCtrl.dispose();
     _roleCtrl.dispose();
@@ -60,531 +56,316 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
     super.dispose();
   }
 
-  Color _overlapColor(double score) {
-    if (score >= 0.7) return const Color(0xFF00CC88);
-    if (score >= 0.4) return const Color(0xFFFFA500);
-    return const Color(0xFFEE5A52);
+  // ------------------------------------------------------------- actions ---
+
+  Future<void> _toggleStar() async {
+    try {
+      final updated = await ref.read(apiClientProvider).toggleStar(_contact.id);
+      if (!mounted) return;
+      setState(() => _contact = updated);
+      ref.invalidate(contactsProvider);
+    } catch (e) {
+      _showError('couldn\'t update star: $e');
+    }
   }
 
-  String _overlapLabel(double score) {
-    if (score >= 0.7) return 'Strong Match';
-    if (score >= 0.4) return 'Moderate Match';
-    return 'Low Match';
+  Future<void> _markFollowUpComplete() async {
+    try {
+      final updated =
+          await ref.read(apiClientProvider).markFollowUpComplete(_contact.id);
+      if (!mounted) return;
+      setState(() => _contact = updated);
+      ref.invalidate(upcomingFollowUpsProvider);
+      ref.invalidate(contactsProvider);
+    } catch (e) {
+      _showError('couldn\'t mark complete: $e');
+    }
   }
 
-  String _strengthLabel(int strength) {
-    if (strength >= 8) return 'Very Strong';
-    if (strength >= 6) return 'Strong';
-    if (strength >= 4) return 'Growing';
-    if (strength >= 2) return 'New';
-    return 'Just Met';
+  Future<void> _saveChanges() async {
+    try {
+      final updated =
+          await ref.read(apiClientProvider).updateContact(_contact.id, {
+        'name': _nameCtrl.text,
+        'company': _companyCtrl.text,
+        'role': _roleCtrl.text,
+        'email': _emailCtrl.text,
+        'phone': _phoneCtrl.text,
+        'notes': _notesCtrl.text,
+      });
+      if (!mounted) return;
+      setState(() {
+        _contact = updated;
+        _isEditing = false;
+      });
+      ref.invalidate(contactsProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('contact updated')),
+      );
+    } catch (e) {
+      _showError('couldn\'t save changes: $e');
+    }
   }
+
+  Future<void> _deleteContact() async {
+    try {
+      await ref.read(apiClientProvider).deleteContact(_contact.id);
+      ref.invalidate(contactsProvider);
+      ref.invalidate(upcomingFollowUpsProvider);
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } catch (e) {
+      _showError('couldn\'t delete contact: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ------------------------------------------------------------------ UI ---
 
   @override
   Widget build(BuildContext context) {
-    final overlapColor = _overlapColor(_contact.overlapScore);
+    final tokens = MossTokens.of(context);
+    final roleCompany = [_contact.role, _contact.company]
+        .where((s) => s != null && s.isNotEmpty)
+        .join(' at ');
 
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      body: FadeTransition(
-        opacity: _fadeAnim,
-        child: CustomScrollView(
-          slivers: [
-            // App Bar with gradient
-            SliverAppBar(
-              expandedHeight: 200,
-              pinned: true,
-              flexibleSpace: FlexibleSpaceBar(
-                background: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 56, 20, 20),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // Avatar
-                          Container(
-                            width: 72,
-                            height: 72,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
-                            ),
-                            child: Center(
-                              child: Text(
-                                _contact.name.isNotEmpty ? _contact.name[0].toUpperCase() : '?',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          // Name and role
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _contact.name,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (_contact.role != null || _contact.company != null)
-                                  Text(
-                                    [_contact.role, _contact.company]
-                                        .where((s) => s != null)
-                                        .join(' at '),
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.85),
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                if (_contact.eventName != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.event, size: 14, color: Colors.white.withOpacity(0.7)),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _contact.eventName!,
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.7),
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-              actions: [
-                IconButton(
-                  icon: Icon(
-                    _contact.isStarred ? Icons.star : Icons.star_border,
-                    color: _contact.isStarred ? Colors.amber : Colors.white,
-                  ),
-                  onPressed: () {
-                    // Toggle star via API
-                  },
-                ),
-                IconButton(
-                  icon: Icon(_isEditing ? Icons.check : Icons.edit, color: Colors.white),
-                  onPressed: () {
-                    setState(() => _isEditing = !_isEditing);
-                  },
-                ),
-              ],
+      appBar: AppBar(
+        actions: [
+          IconButton(
+            icon: Icon(
+              _contact.isStarred ? Icons.star : Icons.star_border,
+              color: _contact.isStarred ? tokens.tierModerate : null,
             ),
+            onPressed: _toggleStar,
+          ),
+          IconButton(
+            icon: Icon(_isEditing ? Icons.check : Icons.edit_outlined),
+            onPressed: () => setState(() => _isEditing = !_isEditing),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+        children: [
+          // The kept note — relationship thread above the name.
+          MemoryCard(
+            header: ConnectionThread(
+              strength: _contact.relationshipStrength,
+              themInitial: _contact.name,
+            ),
+            name: _contact.name,
+            secondaryLine: roleCompany.isNotEmpty ? roleCompany : null,
+            body: _contact.eventName != null
+                ? 'met at ${_contact.eventName}'
+                : null,
+            sharedGround: _contact.overlapPoints,
+          ),
+          const SizedBox(height: 24),
 
-            // Content
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Overlap Score Card
-                    _buildOverlapCard(overlapColor),
-                    const SizedBox(height: 16),
+          if (_contact.summary != null) ...[
+            _sectionTitle('summary'),
+            const SizedBox(height: 8),
+            _panel(child: Text(
+              _contact.summary!,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: tokens.textSecondary, height: 1.6),
+            )),
+            const SizedBox(height: 20),
+          ],
 
-                    // Relationship Strength
-                    _buildStrengthBar(),
-                    const SizedBox(height: 20),
+          if (_contact.interests.isNotEmpty) ...[
+            _sectionTitle('their interests'),
+            const SizedBox(height: 8),
+            _tagWrap(_contact.interests, tokens.tierModerate),
+            const SizedBox(height: 20),
+          ],
 
-                    // Summary
-                    if (_contact.summary != null) ...[
-                      _buildSectionTitle('Summary'),
-                      const SizedBox(height: 8),
+          if (_contact.opportunities.isNotEmpty) ...[
+            _sectionTitle('opportunities'),
+            const SizedBox(height: 8),
+            ..._contact.opportunities.map((opp) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.arrow_outward,
+                          size: 16, color: tokens.tierModerate),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(opp,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(height: 1.4)),
+                      ),
+                    ],
+                  ),
+                )),
+            const SizedBox(height: 20),
+          ],
+
+          if (_contact.followUpDraft != null) ...[
+            _sectionTitle('suggested follow-up'),
+            const SizedBox(height: 8),
+            _panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_contact.followUpDraft!,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(height: 1.5)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Clipboard.setData(
+                              ClipboardData(text: _contact.followUpDraft!));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('copied to clipboard')),
+                          );
+                        },
+                        icon: const Icon(Icons.copy, size: 16),
+                        label: const Text('copy'),
+                      ),
+                      const SizedBox(width: 8),
+                      if (!_contact.followUpCompleted)
+                        ElevatedButton.icon(
+                          onPressed: _markFollowUpComplete,
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('mark done'),
+                        )
+                      else
+                        Text('completed',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(color: tokens.tierStrong)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          if (_contact.email != null ||
+              _contact.phone != null ||
+              _contact.linkedinUrl != null) ...[
+            _sectionTitle('contact info'),
+            const SizedBox(height: 8),
+            _panel(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  if (_contact.email != null)
+                    _infoRow(Icons.email_outlined, 'email', _contact.email!),
+                  if (_contact.phone != null)
+                    _infoRow(Icons.phone_outlined, 'phone', _contact.phone!),
+                  if (_contact.linkedinUrl != null)
+                    _infoRow(Icons.link, 'linkedin', _contact.linkedinUrl!),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          if (_contact.interactions != null &&
+              _contact.interactions!.isNotEmpty) ...[
+            _sectionTitle('interaction timeline'),
+            const SizedBox(height: 8),
+            ..._contact.interactions!.map((interaction) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: tokens.cardSurface,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
+                        width: 8,
+                        height: 8,
+                        margin: const EdgeInsets.only(top: 5),
                         decoration: BoxDecoration(
-                          color: AppTheme.surfaceColor,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.borderColor),
-                        ),
-                        child: Text(
-                          _contact.summary!,
-                          style: TextStyle(fontSize: 14, color: AppTheme.textSecondary, height: 1.6),
+                          color: tokens.tierStrong,
+                          shape: BoxShape.circle,
                         ),
                       ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Shared Interests / Overlap Points
-                    if (_contact.overlapPoints.isNotEmpty) ...[
-                      _buildSectionTitle('Shared Interests'),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _contact.overlapPoints
-                            .map((p) => _buildChip(p, AppTheme.primaryColor))
-                            .toList(),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Interests
-                    if (_contact.interests.isNotEmpty) ...[
-                      _buildSectionTitle('Their Interests'),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _contact.interests
-                            .map((i) => _buildChip(i, AppTheme.secondaryColor))
-                            .toList(),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Opportunities
-                    if (_contact.opportunities.isNotEmpty) ...[
-                      _buildSectionTitle('Opportunities'),
-                      const SizedBox(height: 8),
-                      ...(_contact.opportunities).map((opp) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(Icons.lightbulb_outline, size: 18, color: Color(0xFFFFA500)),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(opp, style: const TextStyle(fontSize: 14, height: 1.4)),
-                                ),
-                              ],
-                            ),
-                          )),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Follow-up Draft
-                    if (_contact.followUpDraft != null) ...[
-                      _buildSectionTitle('Suggested Follow-up'),
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0F4FF),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.15)),
-                        ),
+                      const SizedBox(width: 12),
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _contact.followUpDraft!,
-                              style: const TextStyle(fontSize: 14, height: 1.5),
+                              _formatInteractionType(
+                                  interaction.interactionType),
+                              style: Theme.of(context).textTheme.labelLarge,
                             ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: () {
-                                    Clipboard.setData(ClipboardData(text: _contact.followUpDraft!));
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Copied to clipboard!')),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.copy, size: 16),
-                                  label: const Text('Copy'),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  ),
+                            if (interaction.content != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  interaction.content!,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                const SizedBox(width: 8),
-                                if (!_contact.followUpCompleted)
-                                  ElevatedButton.icon(
-                                    onPressed: () {
-                                      // Mark follow-up complete via API
-                                    },
-                                    icon: const Icon(Icons.check, size: 16),
-                                    label: const Text('Mark Done'),
-                                    style: ElevatedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                    ),
-                                  ),
-                                if (_contact.followUpCompleted)
-                                  Chip(
-                                    label: const Text('Completed', style: TextStyle(color: Colors.white, fontSize: 12)),
-                                    backgroundColor: AppTheme.secondaryColor,
-                                    side: BorderSide.none,
-                                  ),
-                              ],
-                            ),
+                              ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      if (interaction.recordedAt != null)
+                        Text(_formatDate(interaction.recordedAt!),
+                            style: Theme.of(context).textTheme.labelSmall),
                     ],
-
-                    // Contact Info
-                    if (_contact.email != null || _contact.phone != null || _contact.linkedinUrl != null) ...[
-                      _buildSectionTitle('Contact Info'),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceColor,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.borderColor),
-                        ),
-                        child: Column(
-                          children: [
-                            if (_contact.email != null)
-                              _buildInfoRow(Icons.email_outlined, 'Email', _contact.email!),
-                            if (_contact.phone != null)
-                              _buildInfoRow(Icons.phone_outlined, 'Phone', _contact.phone!),
-                            if (_contact.linkedinUrl != null)
-                              _buildInfoRow(Icons.link, 'LinkedIn', _contact.linkedinUrl!),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Interaction Timeline
-                    if (_contact.interactions != null && _contact.interactions!.isNotEmpty) ...[
-                      _buildSectionTitle('Interaction Timeline'),
-                      const SizedBox(height: 8),
-                      ...(_contact.interactions!).map((interaction) => Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppTheme.surfaceColor,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: AppTheme.borderColor),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  margin: const EdgeInsets.only(top: 5),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primaryColor,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _formatInteractionType(interaction.interactionType),
-                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                                      ),
-                                      if (interaction.content != null)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 4),
-                                          child: Text(
-                                            interaction.content!,
-                                            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
-                                            maxLines: 3,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                if (interaction.recordedAt != null)
-                                  Text(
-                                    _formatDate(interaction.recordedAt!),
-                                    style: TextStyle(fontSize: 11, color: AppTheme.textHint),
-                                  ),
-                              ],
-                            ),
-                          )),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Notes (editable)
-                    if (_isEditing) ...[
-                      _buildSectionTitle('Edit Contact'),
-                      const SizedBox(height: 8),
-                      _buildEditField('Name', _nameCtrl),
-                      _buildEditField('Company', _companyCtrl),
-                      _buildEditField('Role', _roleCtrl),
-                      _buildEditField('Email', _emailCtrl),
-                      _buildEditField('Phone', _phoneCtrl),
-                      _buildEditField('Notes', _notesCtrl, maxLines: 4),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            // Save via API
-                            setState(() => _isEditing = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Contact updated!')),
-                            );
-                          },
-                          child: const Text('Save Changes'),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Delete button
-                    Center(
-                      child: TextButton.icon(
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('Delete Contact?'),
-                              content: Text('Remove ${_contact.name} from your contacts? This cannot be undone.'),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.pop(ctx);
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('${_contact.name} deleted')),
-                                    );
-                                  },
-                                  child: const Text('Delete', style: TextStyle(color: Colors.red)),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
-                        label: const Text('Delete Contact', style: TextStyle(color: Colors.red)),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ====================== Helpers ======================
-
-  Widget _buildOverlapCard(Color overlapColor) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: overlapColor.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: overlapColor.withOpacity(0.2)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: overlapColor.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                '${(_contact.overlapScore * 100).toInt()}%',
-                style: TextStyle(
-                  color: overlapColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _overlapLabel(_contact.overlapScore),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: overlapColor,
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Overlap Score — based on shared interests & values',
-                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+                )),
+            const SizedBox(height: 20),
+          ],
 
-  Widget _buildStrengthBar() {
-    final strength = _contact.relationshipStrength;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Relationship Strength', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              Text(
-                '${_strengthLabel(strength)} ($strength/10)',
-                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          if (_isEditing) ...[
+            _sectionTitle('edit contact'),
+            const SizedBox(height: 8),
+            _editField('name', _nameCtrl),
+            _editField('company', _companyCtrl),
+            _editField('role', _roleCtrl),
+            _editField('email', _emailCtrl),
+            _editField('phone', _phoneCtrl),
+            _editField('notes', _notesCtrl, maxLines: 4),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saveChanges,
+                child: const Text('save changes'),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: strength / 10,
-              backgroundColor: AppTheme.borderColor,
-              color: strength >= 7
-                  ? AppTheme.secondaryColor
-                  : strength >= 4
-                      ? const Color(0xFFFFA500)
-                      : AppTheme.accentColor,
-              minHeight: 6,
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          Center(
+            child: TextButton(
+              onPressed: _confirmDelete,
+              child: Text('delete contact',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(color: tokens.danger)),
             ),
           ),
         ],
@@ -592,47 +373,89 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-    );
-  }
+  // --------------------------------------------------------------- pieces ---
 
-  Widget _buildChip(String label, Color color) {
+  Widget _sectionTitle(String title) =>
+      Text(title, style: Theme.of(context).textTheme.headlineSmall);
+
+  Widget _panel({required Widget child, EdgeInsets? padding}) {
+    final tokens = MossTokens.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      width: double.infinity,
+      padding: padding ?? const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
+        color: tokens.cardSurface,
+        borderRadius: BorderRadius.circular(2),
       ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w500),
-      ),
+      child: child,
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
+  Widget _tagWrap(List<String> tags, Color color) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: tags
+          .map((t) => Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(t,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: color)),
+              ))
+          .toList(),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    final tokens = MossTokens.of(context);
     return ListTile(
       dense: true,
-      leading: Icon(icon, size: 20, color: AppTheme.primaryColor),
-      title: Text(value, style: const TextStyle(fontSize: 14)),
-      subtitle: Text(label, style: TextStyle(fontSize: 11, color: AppTheme.textHint)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+      leading: Icon(icon, size: 20, color: tokens.tierStrong),
+      title: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+      subtitle: Text(label, style: Theme.of(context).textTheme.labelSmall),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
     );
   }
 
-  Widget _buildEditField(String label, TextEditingController ctrl, {int maxLines = 1}) {
+  Widget _editField(String label, TextEditingController ctrl,
+      {int maxLines = 1}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: ctrl,
         maxLines: maxLines,
-        decoration: InputDecoration(
-          labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+        decoration: InputDecoration(labelText: label),
+      ),
+    );
+  }
+
+  void _confirmDelete() {
+    final tokens = MossTokens.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('delete contact?'),
+        content: Text(
+            'remove ${_contact.name} from your contacts? this cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _deleteContact();
+            },
+            child: Text('delete', style: TextStyle(color: tokens.danger)),
+          ),
+        ],
       ),
     );
   }
@@ -640,11 +463,11 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
   String _formatInteractionType(String type) {
     switch (type) {
       case 'initial_capture':
-        return 'Initial Capture';
+        return 'initial capture';
       case 'follow_up_completed':
-        return 'Follow-up Completed';
+        return 'follow-up completed';
       case 'voice_note':
-        return 'Voice Note';
+        return 'voice note';
       default:
         return type.replaceAll('_', ' ');
     }
@@ -655,8 +478,8 @@ class _ContactDetailPageState extends ConsumerState<ContactDetailPage>
       final date = DateTime.parse(isoDate);
       final now = DateTime.now();
       final diff = now.difference(date);
-      if (diff.inDays == 0) return 'Today';
-      if (diff.inDays == 1) return 'Yesterday';
+      if (diff.inDays == 0) return 'today';
+      if (diff.inDays == 1) return 'yesterday';
       if (diff.inDays < 7) return '${diff.inDays}d ago';
       return '${date.month}/${date.day}';
     } catch (_) {

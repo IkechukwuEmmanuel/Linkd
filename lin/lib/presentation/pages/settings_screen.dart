@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../presentation/providers/auth_provider.dart';
+import 'personas_screen.dart';
 
-/// Settings and profile screen
+/// Settings — intentionally the quietest, least decorated screen. Flat list on
+/// the page background: no avatar, no colored header band, no icons, no cards.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -11,245 +13,105 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(authNotifierProvider);
     final currentUser = ref.watch(currentUserProvider);
+    final tokens = MossTokens.of(context);
+    final theme = Theme.of(context);
+
+    final email = currentUser?.email ?? 'you';
+    final handle = email.contains('@') ? email.split('@').first : email;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Text('settings', style: theme.textTheme.displaySmall),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Profile Section
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withValues(alpha: 0.1),
-              ),
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundColor: AppTheme.primaryColor,
-                    child: Text(
-                      currentUser?.email[0].toUpperCase() ?? 'U',
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    currentUser?.email ?? 'User',
-                    style: Theme.of(context).textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Member since ${_formatDate(currentUser?.createdAt)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        children: [
+          const SizedBox(height: 8),
+          Text('$handle · linkd member', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 24),
+
+          _row(context, label: 'email', value: email),
+          _row(
+            context,
+            label: 'member since',
+            value: _formatDate(currentUser?.createdAt),
+          ),
+          _row(
+            context,
+            label: 'your facets',
+            value: 'view and confirm',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PersonasScreen()),
             ),
-            const SizedBox(height: 32),
-            // Settings Sections
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Account Section
-                  Text(
-                    'Account',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSettingsTile(
-                    context,
-                    icon: Icons.email,
-                    title: 'Email',
-                    subtitle: currentUser?.email ?? 'Not available',
-                    trailing: const Icon(Icons.check_circle, color: Colors.green),
-                  ),
-                  _buildSettingsTile(
-                    context,
-                    icon: Icons.calendar_today,
-                    title: 'Account Created',
-                    subtitle: _formatDate(currentUser?.createdAt),
-                  ),
-                  const Divider(height: 32),
-                  // Preferences Section
-                  Text(
-                    'Preferences',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSwitchTile(
-                    context,
-                    icon: Icons.notifications,
-                    title: 'Notifications',
-                    subtitle: 'Receive interaction alerts',
-                    value: true,
-                    onChanged: (value) {
-                      // TODO: Implement notifications preference
-                    },
-                  ),
-                  _buildSwitchTile(
-                    context,
-                    icon: Icons.dark_mode,
-                    title: 'Dark Mode',
-                    subtitle: 'Use dark theme',
-                    value: false,
-                    onChanged: (value) {
-                      // TODO: Implement dark mode toggle
-                    },
-                  ),
-                  const Divider(height: 32),
-                  // Support Section
-                  Text(
-                    'Support',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSettingsTile(
-                    context,
-                    icon: Icons.help,
-                    title: 'Help & FAQ',
-                    subtitle: 'Learn how to use Linkd',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Help section - coming soon')),
-                      );
-                    },
-                  ),
-                  _buildSettingsTile(
-                    context,
-                    icon: Icons.info,
-                    title: 'About',
-                    subtitle: 'Version 1.0.0',
-                    onTap: () {
-                      _showAboutDialog(context);
-                    },
-                  ),
-                  const Divider(height: 32),
-                  // Logout Section
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.withValues(alpha: 0.1),
-                        foregroundColor: Colors.red,
-                      ),
-                      onPressed: () => _showLogoutConfirmation(context, ref),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.logout),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Logout',
-                            style:
-                                Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+          _row(
+            context,
+            label: 'export my data',
+            value: 'download everything',
+            onTap: () => _exportData(context, ref),
+          ),
+          _row(
+            context,
+            label: 'about',
+            value: 'version 1.0.0',
+            onTap: () => _showAboutDialog(context),
+          ),
+          _row(
+            context,
+            label: 'delete my account',
+            value: 'permanent',
+            valueColor: tokens.danger,
+            onTap: () => _showDeleteAccountConfirmation(context, ref),
+          ),
+
+          const SizedBox(height: 36),
+          GestureDetector(
+            onTap: () => _showLogoutConfirmation(context, ref),
+            child: Text('log out',
+                style: theme.textTheme.bodyLarge?.copyWith(color: tokens.danger)),
+          ),
+          const SizedBox(height: 36),
+        ],
       ),
     );
   }
 
-  Widget _buildSettingsTile(
+  Widget _row(
     BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    Widget? trailing,
+    required String label,
+    required String value,
+    Color? valueColor,
     VoidCallback? onTap,
   }) {
-    return Material(
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(
-            children: [
-              Icon(icon, color: AppTheme.primaryColor),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              trailing ?? const SizedBox(width: 8),
-            ],
+    final tokens = MossTokens.of(context);
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: tokens.border, width: 0.5),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSwitchTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required Function(bool) onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.primaryColor),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ],
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label, style: theme.textTheme.bodyLarge),
             ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
-        ],
+            Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: valueColor ?? tokens.textSecondary,
+              ),
+            ),
+            if (onTap != null) ...[
+              const SizedBox(width: 6),
+              Icon(Icons.chevron_right, size: 18, color: tokens.textSecondary),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -257,27 +119,82 @@ class SettingsScreen extends ConsumerWidget {
   void _showLogoutConfirmation(BuildContext context, WidgetRef ref) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('log out?'),
+        content: const Text('you\'ll need to sign back in.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
+          TextButton(
             onPressed: () {
-              Navigator.pop(context);
+              final nav = Navigator.of(context);
+              Navigator.pop(dialogContext);
               ref.read(authNotifierProvider.notifier).logout();
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                '/auth',
-                (route) => false,
-              );
+              nav.popUntil((route) => route.isFirst);
             },
-            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+            child: Text('log out',
+                style: TextStyle(color: MossTokens.of(context).danger)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportData(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('preparing your data export...')),
+    );
+    try {
+      final data = await ref.read(apiClientProvider).exportMyData();
+      final payload = (data['data'] as Map?) ?? {};
+      final contacts = (payload['contacts'] as List?)?.length ?? 0;
+      final personas = (payload['personas'] as List?)?.length ?? 0;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+              'export ready: $contacts contacts, $personas facets, and your account data.'),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('export failed: $e')));
+    }
+  }
+
+  void _showDeleteAccountConfirmation(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('delete account?'),
+        content: const Text(
+          'this permanently deletes your account and all associated data '
+          '(contacts, facets, recording metadata, notifications). this cannot '
+          'be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
+              Navigator.pop(dialogContext);
+              try {
+                await ref.read(apiClientProvider).deleteMyAccount();
+                await ref.read(authNotifierProvider.notifier).logout();
+                nav.popUntil((route) => route.isFirst);
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('could not delete account: $e')),
+                );
+              }
+            },
+            child: Text('delete',
+                style: TextStyle(color: MossTokens.of(context).danger)),
           ),
         ],
       ),
@@ -288,41 +205,16 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('About Linkd'),
-        content: const SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Linkd v1.0.0',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              SizedBox(height: 12),
-              Text(
-                'Linkd helps you understand and organize your professional identity through intelligent interaction analysis.',
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Features:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
-              Text('• Voice pitch analysis for persona extraction'),
-              Text('• LinkedIn profile integration'),
-              Text('• Real-time interaction recording'),
-              Text('• Persona and synapse management'),
-              Text('• Performance metrics and insights'),
-            ],
-          ),
+        title: const Text('about linkd'),
+        content: Text(
+          'linkd helps you remember the people you meet and find where you '
+          'genuinely overlap.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: const Text('close'),
           ),
         ],
       ),
@@ -330,7 +222,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   String _formatDate(DateTime? date) {
-    if (date == null) return 'Unknown';
+    if (date == null) return 'unknown';
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 }

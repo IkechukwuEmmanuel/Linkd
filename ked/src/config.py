@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, model_validator
 
 
 class Settings(BaseSettings):
@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     deepgram_api_key: str
     gemini_api_key: str
     
-    # JWT configuration - REQUIRED for production
-    jwt_secret_key: str = ""  # MUST be set in production
-    jwt_expiration_hours: int = 24
-    
+    # Authentication is Supabase-only. Supabase Auth is the single source of
+    # truth; the backend verifies Supabase access tokens and bridges them to the
+    # integer users.id used across the schema. Supabase config below is required.
+
     # Redis configuration for Celery - supports full URL or individual host/port
     redis_url: str = ""  # Full Redis URL (overrides host/port if provided)
     redis_host: str = "localhost"
@@ -34,8 +34,24 @@ class Settings(BaseSettings):
     # Audio storage configuration
     audio_storage_dir: str = "/data/linkd/users"  # Base directory for user audio files
     
-    # CORS configuration
-    cors_origins: list = ["http://localhost:3000", "http://localhost:8080"]
+    # CORS configuration. Stored as a raw string (comma-separated, the documented
+    # env format, or a JSON list) and exposed parsed via `cors_origins_list`.
+    # Kept as `str` because pydantic-settings JSON-decodes list-typed env vars at
+    # the source level and would crash on a plain comma-separated value.
+    cors_origins: str = "http://localhost:3000,http://localhost:8080"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        s = (self.cors_origins or "").strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            import json
+            try:
+                return json.loads(s)
+            except Exception:
+                pass
+        return [o.strip() for o in s.split(",") if o.strip()]
     
     # Rate limiting
     rate_limit_enabled: bool = True
@@ -61,13 +77,36 @@ class Settings(BaseSettings):
     # Encryption (Phase 4)
     fernet_encryption_key: str = ""  # Optional data encryption key
 
-    @field_validator('jwt_secret_key')
-    @classmethod
-    def validate_jwt_secret(cls, v, info):
-        env = info.data.get('environment', 'development') if info.data else 'development'
-        if not v and env != 'development':
-            raise ValueError('jwt_secret_key must be set in non-development environments')
-        return v or 'dev-secret-key-change-me'
+    # Observability (optional). When set, errors are reported to Sentry.
+    sentry_dsn: str = ""
+
+    # Demo account (development convenience). MUST be overridden in production.
+    demo_email: str = "demo@linkd.app"
+    demo_password: str = ""  # empty => demo login disabled unless set
+
+    @model_validator(mode='after')
+    def _validate_production_secrets(self):
+        """Fail closed in non-development environments.
+
+        Auth is Supabase-only, so production must have Supabase configured.
+        Runs after all fields are populated so it can see `environment`.
+        """
+        if self.environment != 'development':
+            missing = [
+                name
+                for name, value in (
+                    ('SUPABASE_URL', self.supabase_url),
+                    ('SUPABASE_ANON_KEY', self.supabase_anon_key),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"{', '.join(missing)} must be set in non-development "
+                    f"environments (auth is Supabase-only)"
+                )
+        return self
+
 
 settings = Settings()  # loads from .env by default
 

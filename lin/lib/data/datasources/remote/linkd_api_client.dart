@@ -1,4 +1,4 @@
-/// Linkd API Client - handles all HTTP requests to backend
+// Linkd API Client - handles all HTTP requests to backend
 
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,8 +7,8 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/logger.dart';
 
 class LinkdApiClient {
-  late Dio _dio;
-  late SharedPreferences _prefs;
+  final Dio _dio;
+  final SharedPreferences _prefs;
 
   LinkdApiClient(this._dio, this._prefs) {
     _setupInterceptors();
@@ -101,6 +101,25 @@ class LinkdApiClient {
     } catch (e) {
       rethrow;
     }
+  }
+
+  /// Fetch the current user (resolves the local user, incl. via the Supabase
+  /// auth bridge when AUTH_PROVIDER=supabase on the backend).
+  Future<User> getMe() async {
+    final response = await _dio.get('${AppConstants.apiBaseUrl}/auth/me');
+    return User.fromJson(response.data['data'] as Map<String, dynamic>);
+  }
+
+  /// Export all of the current user's data (GDPR/CCPA portability).
+  Future<Map<String, dynamic>> exportMyData() async {
+    final response =
+        await _dio.get('${AppConstants.apiBaseUrl}/auth/me/export');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// Permanently delete the current user's account and all associated data.
+  Future<void> deleteMyAccount() async {
+    await _dio.delete('${AppConstants.apiBaseUrl}/auth/me');
   }
 
   // ==================== ONBOARDING ENDPOINTS ====================
@@ -228,6 +247,44 @@ class LinkdApiClient {
     } catch (e) {
       rethrow;
     }
+  }
+
+  // ==================== INGEST ENDPOINTS (async pipeline) ====================
+
+  /// Upload a recorded audio file to the async ingest pipeline.
+  ///
+  /// Returns the `job_id` to poll via [pollIngestStatus]. The pipeline
+  /// transcribes the audio and creates a Contact, surfacing `contact_id` on the
+  /// status endpoint when done.
+  Future<String?> ingestAudio({
+    required String filePath,
+    required String mode, // "live" or "recap"
+    required int durationSeconds,
+    String? eventName,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(
+        filePath,
+        contentType: DioMediaType('audio', 'mp4'),
+      ),
+      'mode': mode,
+      'duration_seconds': durationSeconds,
+      if (eventName != null && eventName.isNotEmpty) 'event_name': eventName,
+    });
+
+    final response = await _dio.post(
+      '${AppConstants.apiBaseUrl}/ingest/audio',
+      data: formData,
+    );
+    return response.data['job_id'] as String?;
+  }
+
+  /// Poll a single ingest job. Returns `{ job_id, status, contact_id }`.
+  Future<Map<String, dynamic>> pollIngestStatus(String jobId) async {
+    final response = await _dio.get(
+      '${AppConstants.apiBaseUrl}/ingest/status/$jobId',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   // ==================== FEEDBACK ENDPOINTS ====================
@@ -398,6 +455,22 @@ class LinkdApiClient {
     }
   }
 
+  /// Fast text-based capture. The backend extracts/enriches asynchronously.
+  Future<void> quickCapture({
+    required String name,
+    required String note,
+    String? eventName,
+  }) async {
+    await _dio.post(
+      '${AppConstants.apiBaseUrl}/contacts/quick-capture',
+      data: {
+        'name': name,
+        'note': note,
+        if (eventName != null && eventName.isNotEmpty) 'event_name': eventName,
+      },
+    );
+  }
+
   Future<List<Contact>> searchContacts(String query) async {
     try {
       final response = await _dio.get(
@@ -421,6 +494,25 @@ class LinkdApiClient {
     } catch (e) {
       rethrow;
     }
+  }
+
+  // ==================== NOTIFICATIONS ENDPOINTS ====================
+
+  /// Returns `{ unread_count, data: [...] }`.
+  Future<Map<String, dynamic>> getNotifications({bool unreadOnly = false}) async {
+    final response = await _dio.get(
+      '${AppConstants.apiBaseUrl}/notifications/',
+      queryParameters: {if (unreadOnly) 'unread_only': true},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> markNotificationRead(int id) async {
+    await _dio.post('${AppConstants.apiBaseUrl}/notifications/$id/read');
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await _dio.post('${AppConstants.apiBaseUrl}/notifications/read-all');
   }
 
   // ==================== INSIGHTS ENDPOINTS ====================

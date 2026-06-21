@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from .rate_limit import limiter
 
-from .routers import onboarding, interactions, feedback, jobs, async_interactions, uploads, ingest, auth, contacts, insights
+from .routers import onboarding, interactions, feedback, jobs, async_interactions, uploads, ingest, auth, contacts, insights, notifications
 from . import db
 from .config import settings
 from .exceptions import LinkdException, to_http_exception
@@ -21,8 +22,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Optional Sentry error tracking (no-op unless SENTRY_DSN is configured).
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.environment,
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+        )
+        logger.info("Sentry error tracking enabled")
+    except Exception as e:
+        logger.warning(f"Sentry init failed: {e}")
+
+# Rate limiter (user-aware) is defined in src/rate_limit.py and imported above.
 
 
 @asynccontextmanager
@@ -57,19 +72,21 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# Add rate limiter to app
+# Add rate limiter to app + handle limit-exceeded with a clean 429 response
 app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Add CORS middleware
-if settings.cors_origins:
+# Add CORS middleware (origins parsed from CORS_ORIGINS — comma-separated or JSON)
+_cors_origins = settings.cors_origins_list
+if _cors_origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    logger.info(f"CORS enabled for origins: {settings.cors_origins}")
+    logger.info(f"CORS enabled for origins: {_cors_origins}")
 
 
 # Middleware to attach correlation_id and request logging
@@ -141,6 +158,7 @@ app.include_router(uploads.router)  # Advanced upload handling with offline supp
 app.include_router(ingest.router)  # Protected ingest endpoint with Supabase auth
 app.include_router(contacts.router)  # Contact CRUD, search, follow-ups
 app.include_router(insights.router)  # Network insights and analytics
+app.include_router(notifications.router)  # Follow-up reminders and system notifications
 
 @app.get("/", tags=["health"])
 def root():

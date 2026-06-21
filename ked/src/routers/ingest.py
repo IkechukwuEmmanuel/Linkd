@@ -15,12 +15,17 @@ import tempfile
 import subprocess
 import os
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request
 from pydantic import BaseModel, Field
 
+from ..rate_limit import limiter, EXPENSIVE_LIMIT
+
+# Auth: use the local JWT dependency (integer user_id) so recordings and the
+# downstream contact-creation pipeline share the same integer user identity as
+# the rest of the system (contacts, personas, jobs). Supabase still provides
+# storage and the recordings table, but not the auth identity here.
+from ..auth import get_current_user
 from ..supabase_client import (
-    get_current_user,
-    get_current_user_data,
     get_supabase_storage,
     get_supabase_database,
     SupabaseStorage,
@@ -28,7 +33,9 @@ from ..supabase_client import (
 )
 from ..exceptions import ValidationError, ExternalServiceError
 from ..config import settings
-from ..tasks.transcription_tasks import transcribe_audio_bytes
+# Dispatch by task NAME (not by importing the task) so the API process does not
+# pull in worker-only deps (Deepgram SDK, scrapers). See requirements-*.txt.
+from ..celery_app import app as celery_app
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ingest", tags=["ingest"])
@@ -66,12 +73,15 @@ class IngestResponse(BaseModel):
     summary="Ingest audio data",
     description="Upload and process audio data. Requires Supabase JWT authentication.",
 )
+@limiter.limit(EXPENSIVE_LIMIT)
 async def ingest_audio(
+    request: Request,
     file: UploadFile = File(..., description="Audio file (WAV, MP3, OGG)"),
     mode: str = Form("recap"),
     duration_seconds: int = Form(...),
     metadata: Optional[str] = Form(None),
-    user_id: str = Depends(get_current_user),
+    event_name: Optional[str] = Form(None),
+    user_id: int = Depends(get_current_user),
     storage: SupabaseStorage = Depends(get_supabase_storage),
     db: SupabaseDatabase = Depends(get_supabase_database),
 ) -> IngestResponse:
@@ -172,6 +182,7 @@ async def ingest_audio(
                 "storage_url": None,
                 "status": "processing",
                 "metadata": metadata,
+                "event_name": event_name,
                 "job_id": job_id,
             }
             await db.insert("recordings", recording_data)
@@ -179,7 +190,11 @@ async def ingest_audio(
             # Branch B: Dispatch Celery transcription immediately with bytes (no wait)
             try:
                 audio_b64 = base64.b64encode(processed_bytes).decode('utf-8')
-                transcribe_audio_bytes.delay(user_id, job_id, audio_b64, mode)
+                celery_app.send_task(
+                    "src.tasks.transcription_tasks.transcribe_audio_bytes",
+                    args=[user_id, job_id, audio_b64, mode, event_name],
+                    queue="transcription",
+                )
                 logger.info(f"[{user_id}] Dispatched transcription task (job={job_id})")
             except Exception as e:
                 logger.warning(f"Failed to dispatch transcription task: {e}")
@@ -236,7 +251,7 @@ async def ingest_audio(
 )
 async def get_recording(
     recording_id: str,
-    user_id: str = Depends(get_current_user),
+    user_id: int = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database),
 ):
     """Get recording details.
@@ -285,7 +300,7 @@ async def get_recording(
 async def list_recordings(
     status_filter: Optional[str] = None,
     limit: int = 50,
-    user_id: str = Depends(get_current_user),
+    user_id: int = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database),
 ):
     """List user's recordings.
@@ -335,7 +350,7 @@ async def list_recordings(
 )
 async def delete_recording(
     recording_id: str,
-    user_id: str = Depends(get_current_user),
+    user_id: int = Depends(get_current_user),
     storage: SupabaseStorage = Depends(get_supabase_storage),
     db: SupabaseDatabase = Depends(get_supabase_database),
 ):
@@ -361,10 +376,20 @@ async def delete_recording(
         
         record = records[0]
         
-        # Delete from storage
+        # Delete from storage. Audio is uploaded to the `interactions` bucket
+        # (source-of-truth, see the ingest upload path), so deletes must target
+        # the same bucket. Reconstruct the full object key — the upload used
+        # f"{user_id}/recordings/{recording_id}.{ext}", so the public URL ends
+        # with that whole path after the bucket name. Taking only the last URL
+        # segment would drop the "{user_id}/recordings/" prefix and no-op.
         if record.get("storage_url"):
-            storage_path = record["storage_url"].split("/")[-1]
-            await storage.delete_file(bucket="recordings", path=storage_path)
+            storage_url = record["storage_url"]
+            marker = "/interactions/"
+            if marker in storage_url:
+                storage_path = storage_url.split(marker, 1)[1].split("?", 1)[0]
+            else:
+                storage_path = storage_url.split("/")[-1]
+            await storage.delete_file(bucket="interactions", path=storage_path)
         
         # Delete from database
         db.client.table("recordings").delete().eq(
@@ -417,3 +442,40 @@ async def ingest_status():
             "status": "error",
             "error": str(e),
         }
+
+
+@router.get(
+    "/status/{job_id}",
+    response_model=dict,
+    summary="Poll ingest job status",
+    description="Poll the status of an ingest job. Returns contact_id when the "
+    "transcription + contact-creation pipeline has completed.",
+)
+async def get_ingest_status(
+    job_id: str,
+    user_id: int = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database),
+):
+    """Poll a single ingest job by job_id.
+
+    **Authentication**: Required. Bearer token from Supabase auth.
+
+    **Returns**: ``{ job_id, status, contact_id }``. ``contact_id`` is ``None``
+    until ``create_contact_from_transcript`` writes it back (see contact_tasks).
+    A missing row is reported as ``processing`` rather than 404 so the client
+    can keep polling through the brief window before the row is visible.
+    """
+    try:
+        records = await db.query("recordings", job_id=job_id, user_id=user_id)
+        if not records:
+            return {"job_id": job_id, "status": "processing", "contact_id": None}
+
+        record = records[0]
+        return {
+            "job_id": job_id,
+            "status": record.get("status", "processing"),
+            "contact_id": record.get("contact_id"),
+        }
+    except Exception as e:
+        logger.error(f"[{user_id}] Status check failed for job {job_id}: {e}")
+        return {"job_id": job_id, "status": "processing", "contact_id": None}

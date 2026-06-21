@@ -1,0 +1,35 @@
+# API service image (FastAPI / uvicorn).
+#
+# Installs only the API + shared deps (requirements-api.txt) — NOT the worker's
+# scraper/browser stack. The API dispatches Celery tasks by name, so it never
+# imports the task graph.
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# ffmpeg: the API preprocesses uploaded audio. build-essential/libpq-dev cover
+# any source builds; removed from the final layer to keep the image lean.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg build-essential libpq-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-common.txt requirements-api.txt ./
+RUN pip install -r requirements-api.txt
+
+COPY . .
+
+# Drop privileges.
+RUN useradd -m appuser
+USER appuser
+
+EXPOSE 8000
+
+# Honor the platform's $PORT (Railway/Render) and default to 8000.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
+
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

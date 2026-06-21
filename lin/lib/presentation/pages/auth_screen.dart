@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../presentation/providers/auth_provider.dart';
 
-/// Authentication screen for Sign In / Sign Up
+/// Authentication — typography-led, no logo/tabs/icon-cards.
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
@@ -11,305 +11,156 @@ class AuthScreen extends ConsumerStatefulWidget {
   ConsumerState<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends ConsumerState<AuthScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
 
   @override
   void dispose() {
-    _tabController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  void _handleSignIn() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
+  bool get _hasCredentials =>
+      _emailController.text.trim().isNotEmpty &&
+      _passwordController.text.isNotEmpty;
 
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields')),
-      );
-      return;
-    }
+  void _requireFields() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('enter your email and password first')),
+    );
+  }
 
+  Future<void> _signIn() async {
+    if (!_hasCredentials) return _requireFields();
     try {
       await ref.read(authNotifierProvider.notifier).signin(
-        email: email,
-        password: password,
-      );
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+          );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign in failed: ${e.toString()}')),
-        );
-      }
+      _toast('couldn\'t sign in: $e');
     }
   }
 
-  void _handleSignUp() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    final confirmPassword = _confirmPasswordController.text;
-
-    if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields')),
-      );
-      return;
-    }
-
-    if (password != confirmPassword) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Passwords do not match')),
-      );
-      return;
-    }
-
+  Future<void> _signUp() async {
+    if (!_hasCredentials) return _requireFields();
     try {
       await ref.read(authNotifierProvider.notifier).signup(
-        email: email,
-        password: password,
-      );
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+          );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign up failed: ${e.toString()}')),
-        );
-      }
+      _toast('couldn\'t create your account: $e');
     }
   }
 
-  void _handleDemoSignin() async {
+  Future<void> _demo() async {
     try {
       await ref.read(authNotifierProvider.notifier).demoSignin();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Demo sign in failed: ${e.toString()}')),
-        );
-      }
+      _toast('demo unavailable: $e');
+    }
+  }
+
+  void _toast(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
+    final tokens = MossTokens.of(context);
+    final theme = Theme.of(context);
 
     return Scaffold(
-      body: Stack(
-        children: [
-          // Background gradient
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  AppTheme.primaryColor.withValues(alpha: 0.1),
-                  AppTheme.secondaryColor.withValues(alpha: 0.05),
-                ],
-              ),
-            ),
-          ),
-          SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 40),
-                    // App logo and title
-                    Icon(
-                      Icons.link,
-                      size: 80,
-                      color: AppTheme.primaryColor,
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Linkd',
-                      style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                        color: AppTheme.primaryColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Professional Networking Intelligence',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 48),
-                    // Tab bar
-                    TabBar(
-                      controller: _tabController,
-                      labelColor: AppTheme.primaryColor,
-                      unselectedLabelColor: AppTheme.textSecondary,
-                      indicatorColor: AppTheme.primaryColor,
-                      indicatorWeight: 3,
-                      tabs: const [
-                        Tab(text: 'Sign In'),
-                        Tab(text: 'Sign Up'),
-                      ],
-                    ),
-                    const SizedBox(height: 32),
-                    // Tab content
-                    SizedBox(
-                      height: 350,
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          // Sign In Tab
-                          _buildSignInForm(context, authState),
-                          // Sign Up Tab
-                          _buildSignUpForm(context, authState),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    // Demo sign in button
-                    Column(
-                      children: [
-                        Text(
-                          'Or try demo',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: authState.isLoading ? null : _handleDemoSignin,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green.shade600,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: authState.isLoading
-                                ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation(Colors.white),
-                              ),
-                            )
-                                : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.rocket_launch, size: 20),
-                                const SizedBox(width: 8),
-                                const Text('Quick Demo Access'),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: MediaQuery.of(context).size.height * 0.16),
+                Text('who\'s coming in?', style: theme.textTheme.displayLarge),
+                const SizedBox(height: 40),
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(hintText: 'email'),
                 ),
-              ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(hintText: 'password'),
+                ),
+                const SizedBox(height: 36),
+                if (authState.isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  _inlineAction(
+                    context,
+                    label: 'step back in',
+                    onTap: _signIn,
+                  ),
+                const SizedBox(height: 28),
+                GestureDetector(
+                  onTap: authState.isLoading ? null : _signUp,
+                  child: Text.rich(
+                    TextSpan(
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: tokens.textSecondary),
+                      children: [
+                        const TextSpan(text: 'new here? '),
+                        TextSpan(
+                          text: 'build your profile',
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(color: tokens.tierStrong),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                GestureDetector(
+                  onTap: authState.isLoading ? null : _demo,
+                  child: Text('or just look around',
+                      style: theme.textTheme.bodySmall),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildSignInForm(BuildContext context, AuthState authState) {
-    return Column(
-      children: [
-        TextField(
-          controller: _emailController,
-          decoration: InputDecoration(
-            hintText: 'Email',
-            prefixIcon: const Icon(Icons.email),
+  Widget _inlineAction(BuildContext context,
+      {required String label, required VoidCallback onTap}) {
+    final tokens = MossTokens.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context)
+                .textTheme
+                .headlineLarge
+                ?.copyWith(color: tokens.tierStrong),
           ),
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _passwordController,
-          decoration: InputDecoration(
-            hintText: 'Password',
-            prefixIcon: const Icon(Icons.lock),
-          ),
-          obscureText: true,
-        ),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: authState.isLoading ? null : _handleSignIn,
-            child: authState.isLoading
-                ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
-                )
-                : const Text('Sign In'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSignUpForm(BuildContext context, AuthState authState) {
-    return Column(
-      children: [
-        TextField(
-          controller: _emailController,
-          decoration: InputDecoration(
-            hintText: 'Email',
-            prefixIcon: const Icon(Icons.email),
-          ),
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _passwordController,
-          decoration: InputDecoration(
-            hintText: 'Password',
-            prefixIcon: const Icon(Icons.lock),
-          ),
-          obscureText: true,
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _confirmPasswordController,
-          decoration: InputDecoration(
-            hintText: 'Confirm Password',
-            prefixIcon: const Icon(Icons.lock_outline),
-          ),
-          obscureText: true,
-        ),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: authState.isLoading ? null : _handleSignUp,
-            child: authState.isLoading
-                ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
-                )
-                : const Text('Sign Up'),
-          ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Icon(Icons.arrow_forward, color: tokens.tierStrong, size: 22),
+        ],
+      ),
     );
   }
 }

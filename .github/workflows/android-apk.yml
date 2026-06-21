@@ -1,0 +1,84 @@
+name: Android APK
+
+# Builds a release APK on GitHub's hosted runners (~16 GiB RAM), which have the
+# headroom the dev container lacks, and publishes it as a downloadable artifact.
+#
+# Optional: set a repository variable API_BASE_URL (Settings → Secrets and
+# variables → Actions → Variables) to bake a backend URL into the build. When
+# unset, the app falls back to its compiled-in default (http://localhost:8000).
+
+on:
+  push:
+    branches: [ main, feat/pipeline-and-ux-build ]
+    paths:
+      - 'lin/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Backend base URL to bake into the build (optional)"
+        required: false
+        default: ""
+
+jobs:
+  build-apk:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lin
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 8.11 requires JDK 17-21; pin 21 to match local toolchain.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.2
+          channel: stable
+          cache: true
+
+      - name: Accept Android SDK licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - run: flutter pub get
+
+      - name: Build per-ABI release APKs
+        run: |
+          API_URL="${{ github.event.inputs.api_base_url || vars.API_BASE_URL }}"
+          # --split-per-abi produces one lean APK per architecture instead of a
+          # single universal APK bundling every ABI's native libs.
+          if [ -n "$API_URL" ]; then
+            echo "Building with API_BASE_URL=$API_URL"
+            flutter build apk --release --split-per-abi --dart-define=API_BASE_URL="$API_URL"
+          else
+            echo "Building with compiled-in default API_BASE_URL"
+            flutter build apk --release --split-per-abi
+          fi
+          echo "Built APKs:" && ls -1 build/app/outputs/flutter-apk/*.apk
+
+      # Upload each ABI as its own artifact. Most modern phones are arm64-v8a.
+      - name: Upload arm64-v8a APK (most modern devices)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkd-arm64-v8a
+          path: lin/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
+
+      - name: Upload armeabi-v7a APK (older 32-bit devices)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkd-armeabi-v7a
+          path: lin/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          if-no-files-found: error
+
+      - name: Upload x86_64 APK (emulators)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkd-x86_64
+          path: lin/build/app/outputs/flutter-apk/app-x86_64-release.apk
+          if-no-files-found: error

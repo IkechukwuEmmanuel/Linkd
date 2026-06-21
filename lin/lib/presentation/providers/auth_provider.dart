@@ -1,8 +1,12 @@
-/// Riverpod providers for authentication state management
+// Riverpod providers for authentication state management
+
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
+import '../../core/constants/app_constants.dart';
 import '../../domain/entities/entities.dart';
 import '../../data/datasources/remote/linkd_api_client.dart';
 
@@ -76,14 +80,39 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final userJson = prefs.getString('user_json');
     if (userJson != null) {
       try {
-        return User.fromJson(Map<String, dynamic>.from(
-          Map<String, dynamic>.from({'': userJson}),
-        ));
+        return User.fromJson(
+          jsonDecode(userJson) as Map<String, dynamic>,
+        );
       } catch (e) {
         return null;
       }
     }
     return null;
+  }
+
+  /// Persist the resolved user so it can be restored on next app launch.
+  Future<void> _persistUser(User user) async {
+    await prefs.setString('user_json', jsonEncode(user.toJson()));
+  }
+
+  /// Persist a Supabase session and resolve the local user via the backend
+  /// bridge (GET /auth/me with the Supabase access token).
+  Future<void> _completeSupabaseSession(supa.AuthResponse res) async {
+    final token = res.session?.accessToken;
+    if (token == null) {
+      throw Exception('Check your email to confirm your account, then sign in.');
+    }
+    await prefs.setString('auth_token', token);
+    final user = await apiClient.getMe();
+    await prefs.setBool('is_authenticated', true);
+    await prefs.setInt('user_id', user.id);
+    await _persistUser(user);
+    state = state.copyWith(
+      user: user,
+      token: token,
+      isLoading: false,
+      isAuthenticated: true,
+    );
   }
 
   Future<void> signup({
@@ -92,9 +121,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
+      if (AppConstants.useSupabaseAuth) {
+        final res = await supa.Supabase.instance.client.auth
+            .signUp(email: email, password: password);
+        await _completeSupabaseSession(res);
+        return;
+      }
       final response = await apiClient.signup(email: email, password: password);
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
+      await _persistUser(response.user);
       state = state.copyWith(
         user: response.user,
         token: response.token,
@@ -116,9 +152,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
+      if (AppConstants.useSupabaseAuth) {
+        final res = await supa.Supabase.instance.client.auth
+            .signInWithPassword(email: email, password: password);
+        await _completeSupabaseSession(res);
+        return;
+      }
       final response = await apiClient.signin(email: email, password: password);
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
+      await _persistUser(response.user);
       state = state.copyWith(
         user: response.user,
         token: response.token,
@@ -140,6 +183,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final response = await apiClient.demoSignin();
       await prefs.setBool('is_authenticated', true);
       await prefs.setInt('user_id', response.user.id);
+      await _persistUser(response.user);
       state = state.copyWith(
         user: response.user,
         token: response.token,
@@ -157,10 +201,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> logout() async {
     try {
+      if (AppConstants.useSupabaseAuth) {
+        try {
+          await supa.Supabase.instance.client.auth.signOut();
+        } catch (_) {}
+      }
       await apiClient.logout();
       await prefs.remove('is_authenticated');
       await prefs.remove('user_id');
       await prefs.remove('auth_token');
+      await prefs.remove('user_json');
       state = AuthState();
     } catch (e) {
       rethrow;

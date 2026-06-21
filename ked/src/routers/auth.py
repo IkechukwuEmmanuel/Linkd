@@ -1,33 +1,42 @@
-"""Authentication router — signup, signin, demo access, token management.
+"""Authentication router — Supabase-backed signup, signin, demo, session.
 
-Provides all auth endpoints that the Flutter client expects:
-- POST /auth/signup     → create user, return JWT
-- POST /auth/signin     → validate credentials, return JWT
-- POST /auth/demo-signin → create/retrieve demo account
-- POST /auth/refresh    → refresh JWT token
-- POST /auth/logout     → client-side token invalidation
-- GET  /auth/me         → current user from JWT
+Supabase Auth is the single source of truth. These endpoints proxy credential
+operations to Supabase and then bridge the identity to the local integer
+``users.id``, so the Flutter client keeps the exact same contract it already
+expects:
+
+    POST /auth/signup      → create user in Supabase, return {user, token, is_new_user}
+    POST /auth/signin      → validate via Supabase, return {user, token, is_new_user}
+    POST /auth/demo-signin → sign in the configured demo account (or 403)
+    POST /auth/refresh     → exchange a Supabase refresh token for a new session
+    POST /auth/logout      → client discards the token (revokes the Supabase session)
+    GET  /auth/me          → current user resolved from the token
+    GET  /auth/me/export   → full data export (GDPR/CCPA)
+    DELETE /auth/me        → delete the account and all associated data
+
+The ``token`` returned is a Supabase access token; protected routes verify it via
+``Depends(get_current_user)``.
 """
 
 import logging
 from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, EmailStr
-from passlib.context import CryptContext
+from pydantic import BaseModel, Field
 
 from .. import models, db
-from ..auth import create_access_token, get_current_user
-from ..exceptions import ValidationError, UnauthorizedError
+from ..auth import get_current_user, get_or_create_local_user
+from ..config import settings
+from ..supabase_client import SupabaseManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-DEMO_EMAIL = "demo@linkd.app"
-DEMO_PASSWORD = "linkd-demo-2024"
+# Demo account is configured via settings (env). DEMO_PASSWORD is empty by
+# default, which disables demo login unless explicitly set — no hardcoded creds.
+DEMO_EMAIL = settings.demo_email
+DEMO_PASSWORD = settings.demo_password
 
 
 # ============================================================================
@@ -35,31 +44,28 @@ DEMO_PASSWORD = "linkd-demo-2024"
 # ============================================================================
 
 class SignupRequest(BaseModel):
-    """Signup request body."""
     email: str = Field(..., min_length=5, max_length=255)
     password: str = Field(..., min_length=6, max_length=128)
 
 
 class SigninRequest(BaseModel):
-    """Signin request body."""
     email: str = Field(..., min_length=5, max_length=255)
     password: str = Field(..., min_length=1, max_length=128)
 
 
 class RefreshRequest(BaseModel):
-    """Token refresh request."""
-    token: str
+    refresh_token: str
 
 
 class AuthResponse(BaseModel):
-    """Auth response matching Flutter AuthResponse.fromJson expectations."""
+    """Matches the Flutter AuthResponse.fromJson contract."""
     user: dict
     token: str
     is_new_user: bool
 
 
 # ============================================================================
-# Helper Functions
+# Helpers
 # ============================================================================
 
 def get_db():
@@ -71,22 +77,62 @@ def get_db():
 
 
 def _user_to_dict(user: models.User) -> dict:
-    """Convert User ORM object to dict matching Flutter User.fromJson."""
     return {
         "id": user.id,
         "email": user.email,
-        "created_at": user.created_at.isoformat() if user.created_at else datetime.utcnow().isoformat(),
+        "created_at": user.created_at.isoformat()
+        if user.created_at
+        else datetime.utcnow().isoformat(),
     }
 
 
-def _create_auth_response(user: models.User, is_new_user: bool) -> dict:
-    """Create standardized auth response."""
-    token = create_access_token(user.id)
+def _session_to_auth_response(
+    supabase_response, db_session: Session, is_new_user: bool
+) -> dict:
+    """Bridge a Supabase auth response into our {user, token, is_new_user} shape.
+
+    ``supabase_response`` is the object returned by ``sign_up`` /
+    ``sign_in_with_password`` / ``refresh_session`` — it exposes ``.session``
+    (with ``.access_token``) and ``.user`` (with ``.email``). We resolve/create
+    the local ``users`` row by email so ``user.id`` stays the integer id the rest
+    of the app uses.
+    """
+    session = getattr(supabase_response, "session", None)
+    sb_user = getattr(supabase_response, "user", None)
+    access_token = getattr(session, "access_token", None) if session else None
+    email = getattr(sb_user, "email", None) if sb_user else None
+
+    if not access_token or not email:
+        # Most commonly: signup succeeded but the project requires email
+        # confirmation, so no session is issued yet.
+        raise HTTPException(
+            status_code=status.HTTP_202_ACCEPTED
+            if sb_user
+            else status.HTTP_401_UNAUTHORIZED,
+            detail="Check your email to confirm your account, then sign in."
+            if sb_user
+            else "Authentication failed.",
+        )
+
+    local_id = get_or_create_local_user(email, db_session)
+    user = db_session.query(models.User).filter(models.User.id == local_id).first()
     return {
         "user": _user_to_dict(user),
-        "token": token,
+        "token": access_token,
         "is_new_user": is_new_user,
     }
+
+
+def _supabase_auth():
+    """Return the Supabase auth client, or a clear 503 if it isn't configured."""
+    try:
+        return SupabaseManager.get_client().auth
+    except Exception as e:
+        logger.error(f"Supabase client unavailable: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service is not configured.",
+        )
 
 
 # ============================================================================
@@ -94,165 +140,94 @@ def _create_auth_response(user: models.User, is_new_user: bool) -> dict:
 # ============================================================================
 
 @router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-def signup(
-    request: SignupRequest,
-    db_session: Session = Depends(get_db),
-):
-    """Create a new user account.
-
-    Args:
-        request: SignupRequest with email and password
-
-    Returns:
-        AuthResponse with user info, JWT token, and is_new_user=True
-
-    Raises:
-        ValidationError: If email already exists
-    """
-    # Check if email already exists
-    existing_user = db_session.query(models.User).filter(
-        models.User.email == request.email.lower().strip()
-    ).first()
-
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists",
-        )
-
+def signup(request: SignupRequest, db_session: Session = Depends(get_db)):
+    """Create a new account via Supabase Auth."""
+    auth = _supabase_auth()
+    email = request.email.lower().strip()
     try:
-        # Create user with hashed password
-        hashed_pw = pwd_context.hash(request.password)
-        user = models.User(
-            email=request.email.lower().strip(),
-            hashed_password=hashed_pw,
-        )
-        db_session.add(user)
-        db_session.commit()
-        db_session.refresh(user)
-
-        logger.info(f"[user_id={user.id}] New user created: {user.email}")
-
-        return _create_auth_response(user, is_new_user=True)
-
-    except HTTPException:
-        raise
+        result = auth.sign_up({"email": email, "password": request.password})
     except Exception as e:
-        db_session.rollback()
-        logger.error(f"Signup failed for {request.email}: {e}")
+        msg = str(e).lower()
+        if "already" in msg or "registered" in msg or "exists" in msg:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this email already exists",
+            )
+        logger.warning(f"Supabase signup failed for {email}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create account",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not create account. Check the email and password.",
         )
+    response = _session_to_auth_response(result, db_session, is_new_user=True)
+    logger.info(f"[user_id={response['user']['id']}] New user via Supabase: {email}")
+    return response
 
 
 @router.post("/signin", response_model=AuthResponse)
-def signin(
-    request: SigninRequest,
-    db_session: Session = Depends(get_db),
-):
-    """Sign in with email and password.
-
-    Args:
-        request: SigninRequest with email and password
-
-    Returns:
-        AuthResponse with user info, JWT token, and is_new_user=False
-
-    Raises:
-        HTTPException: If credentials are invalid
-    """
-    user = db_session.query(models.User).filter(
-        models.User.email == request.email.lower().strip()
-    ).first()
-
-    if not user or not pwd_context.verify(request.password, user.hashed_password):
+def signin(request: SigninRequest, db_session: Session = Depends(get_db)):
+    """Sign in with email and password via Supabase Auth."""
+    auth = _supabase_auth()
+    email = request.email.lower().strip()
+    try:
+        result = auth.sign_in_with_password(
+            {"email": email, "password": request.password}
+        )
+    except Exception as e:
+        logger.info(f"Supabase signin rejected for {email}: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-
-    logger.info(f"[user_id={user.id}] User signed in: {user.email}")
-
-    return _create_auth_response(user, is_new_user=False)
+    response = _session_to_auth_response(result, db_session, is_new_user=False)
+    logger.info(f"[user_id={response['user']['id']}] Signed in: {email}")
+    return response
 
 
 @router.post("/demo-signin", response_model=AuthResponse)
-def demo_signin(
-    db_session: Session = Depends(get_db),
-):
-    """Sign in with a demo account. Creates the account if it doesn't exist.
-
-    Returns:
-        AuthResponse with demo user info and JWT token
-    """
-    # Check if demo user exists
-    user = db_session.query(models.User).filter(
-        models.User.email == DEMO_EMAIL
-    ).first()
-
-    is_new_user = False
-
-    if not user:
-        # Create demo user
-        hashed_pw = pwd_context.hash(DEMO_PASSWORD)
-        user = models.User(
-            email=DEMO_EMAIL,
-            hashed_password=hashed_pw,
+def demo_signin(db_session: Session = Depends(get_db)):
+    """Sign in the configured demo account (disabled unless DEMO_PASSWORD is set)."""
+    if not DEMO_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo login is disabled.",
         )
-        db_session.add(user)
-        db_session.commit()
-        db_session.refresh(user)
-        is_new_user = True
-        logger.info(f"[user_id={user.id}] Demo user created")
-
-    logger.info(f"[user_id={user.id}] Demo sign-in")
-
-    return _create_auth_response(user, is_new_user=is_new_user)
+    auth = _supabase_auth()
+    try:
+        result = auth.sign_in_with_password(
+            {"email": DEMO_EMAIL, "password": DEMO_PASSWORD}
+        )
+    except Exception as e:
+        logger.error(f"Demo sign-in failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo account is not available.",
+        )
+    return _session_to_auth_response(result, db_session, is_new_user=False)
 
 
 @router.post("/refresh", response_model=AuthResponse)
-def refresh_token(
-    user_id: int = Depends(get_current_user),
-    db_session: Session = Depends(get_db),
-):
-    """Refresh JWT token using the current valid token.
-
-    Args:
-        user_id: Extracted from current JWT token via Depends
-
-    Returns:
-        AuthResponse with refreshed JWT token
-    """
-    user = db_session.query(models.User).filter(
-        models.User.id == user_id
-    ).first()
-
-    if not user:
+def refresh_token(request: RefreshRequest, db_session: Session = Depends(get_db)):
+    """Exchange a Supabase refresh token for a fresh session."""
+    auth = _supabase_auth()
+    try:
+        result = auth.refresh_session(request.refresh_token)
+    except Exception as e:
+        logger.info(f"Token refresh rejected: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not refresh session. Sign in again.",
         )
-
-    logger.info(f"[user_id={user_id}] Token refreshed")
-
-    return _create_auth_response(user, is_new_user=False)
+    return _session_to_auth_response(result, db_session, is_new_user=False)
 
 
 @router.post("/logout")
 def logout():
-    """Logout — client should discard the token.
+    """Logout — the client discards its token.
 
-    Server-side token invalidation is handled by token expiration.
-    Client clears local storage on receipt of success response.
-
-    Returns:
-        Success confirmation
+    Supabase sessions are JWTs; the client clears local storage. (Server-side
+    revocation would require the user's token here; we keep this idempotent.)
     """
-    return {
-        "success": True,
-        "message": "Logged out successfully",
-    }
+    return {"success": True, "message": "Logged out successfully"}
 
 
 @router.get("/me")
@@ -260,25 +235,104 @@ def get_me(
     user_id: int = Depends(get_current_user),
     db_session: Session = Depends(get_db),
 ):
-    """Get current authenticated user info.
-
-    Args:
-        user_id: Extracted from JWT token
-
-    Returns:
-        User info
-    """
-    user = db_session.query(models.User).filter(
-        models.User.id == user_id
-    ).first()
-
+    """Return the current authenticated user (resolved from the token)."""
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    return {"success": True, "data": _user_to_dict(user)}
+
+
+def _row_to_dict(obj) -> dict:
+    """Serialize an ORM row to a JSON-safe dict, skipping embedding vectors."""
+    from sqlalchemy import inspect as sa_inspect
+
+    out = {}
+    for attr in sa_inspect(obj).mapper.column_attrs:
+        key = attr.key
+        if key == "vector":  # large embedding, not user-meaningful in an export
+            continue
+        val = getattr(obj, key)
+        if hasattr(val, "isoformat"):
+            val = val.isoformat()
+        out[key] = val
+    return out
+
+
+@router.get("/me/export")
+def export_my_data(
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
+    """Export all data associated with the current user (GDPR/CCPA portability)."""
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    related = {
+        "personas": models.UserPersona,
+        "interests": models.InterestNode,
+        "conversations": models.Conversation,
+        "jobs": models.Job,
+        "persona_feedback": models.PersonaFeedback,
+        "interaction_metrics": models.InteractionMetric,
+        "contacts": models.Contact,
+        "contact_interactions": models.ContactInteraction,
+        "notifications": models.Notification,
+    }
+    data = {"user": _user_to_dict(user)}
+    for key, model in related.items():
+        rows = db_session.query(model).filter(model.user_id == user_id).all()
+        data[key] = [_row_to_dict(r) for r in rows]
+
+    logger.info(f"[user_id={user_id}] Data export generated")
+    return {"success": True, "data": data}
+
+
+@router.delete("/me")
+def delete_my_account(
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
+    """Permanently delete the local account and all associated data.
+
+    Child rows are removed via ON DELETE CASCADE. The corresponding Supabase auth
+    user is also deleted when a service-role key is configured; otherwise that
+    deletion must be performed out of band (logged as a warning).
+    """
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    email = user.email
+    db_session.query(models.User).filter(models.User.id == user_id).delete()
+    db_session.commit()
+
+    # Best-effort: remove the Supabase auth identity too (needs service role key).
+    if settings.supabase_service_role_key:
+        try:
+            from supabase import create_client
+
+            admin = create_client(
+                settings.supabase_url, settings.supabase_service_role_key
+            )
+            # Look up the auth user by email, then delete by id.
+            users = admin.auth.admin.list_users()
+            target = next((u for u in users if getattr(u, "email", None) == email), None)
+            if target:
+                admin.auth.admin.delete_user(target.id)
+                logger.info(f"[user_id={user_id}] Deleted Supabase auth identity")
+        except Exception as e:
+            logger.warning(
+                f"[user_id={user_id}] Local data deleted, but Supabase auth user "
+                f"removal failed (delete manually): {e}"
+            )
+    else:
+        logger.warning(
+            f"[user_id={user_id}] Local data deleted; SUPABASE_SERVICE_ROLE_KEY "
+            f"not set, so the Supabase auth user must be removed out of band."
         )
 
-    return {
-        "success": True,
-        "data": _user_to_dict(user),
-    }
+    logger.info(f"[user_id={user_id}] Account and all associated data deleted")
+    return {"success": True, "message": "Account and all associated data deleted."}

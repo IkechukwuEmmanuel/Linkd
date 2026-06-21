@@ -1,34 +1,12 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-alembic==1.13.0
-python-dotenv==1.0.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
-deepgram-sdk==3.1.1
-beautifulsoup4==4.12.2
-selenium==4.15.0
-playwright==1.40.0
-pgvector==0.2.4
-google-genai==0.3.0
-pytest==7.4.3
-requests==2.31.0
-httpx==0.25.2
-aiohttp==3.9.1
-boto3==1.29.7
-celery[redis]==5.3.4
-redis==5.0.1
-flower==2.0.1
-numpy==1.24.3
-python-multipart==0.0.6
-PyJWT==2.8.1
-slowapi==0.1.9
-cryptography==41.0.7
-supabase==2.4.0
-ffmpeg-python==0.3.0
-
-# NOTE: The `ffmpeg-python` package is a Python wrapper.
-# You must also install the system `ffmpeg` binary in your
-# deployment environment (apt, yum, apk, or Docker image).
-# Example (Debian/Ubuntu): `apt-get update && apt-get install -y ffmpeg`
+# Aggregate of all runtime dependencies (API + worker), kept so existing tooling
+# and CI that runs `pip install -r requirements.txt` continues to work.
+#
+# For lean, per-process installs use the split files instead:
+#   requirements-common.txt  — shared by API and worker
+#   requirements-api.txt     — API process only
+#   requirements-worker.txt  — Celery worker only
+#   requirements-dev.txt     — everything + pytest/alembic (tests/CI)
+#
+# For a fully version-pinned (transitive) install, use requirements.lock.
+-r requirements-api.txt
+-r requirements-worker.txt

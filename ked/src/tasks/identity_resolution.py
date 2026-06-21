@@ -288,3 +288,23 @@ async def resolve_person_identity(
     """
     resolver = IdentityResolver()
     return await resolver.resolve_identity(user_context, candidates, extracted_interests)
+
+
+# ---------------------------------------------------------------------------
+# Celery task wrapper
+#
+# Identity resolution is async (LLM scoring + I/O); Celery tasks run
+# synchronously. Bridge with asyncio.run inside a registered task so the
+# workflow can dispatch it — resolving the prior async/sync mismatch.
+# ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+from ..celery_app import app  # noqa: E402  (after the async defs, by design)
+
+
+@app.task(name="src.tasks.identity_resolution.resolve_identity_task")
+def resolve_identity_task(user_context, candidates, extracted_interests=None) -> Dict:
+    """Synchronous Celery entrypoint for identity resolution."""
+    return asyncio.run(
+        resolve_person_identity(user_context, candidates, extracted_interests)
+    )

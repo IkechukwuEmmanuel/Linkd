@@ -14,22 +14,30 @@ from ..services import deepgram_integration
 from ..db import SessionLocal
 from ..models import Conversation, InteractionMetric
 from ..supabase_client import SupabaseManager
+from .contact_tasks import create_contact_from_transcript, _mark_job_failed
 
 logger = logging.getLogger(__name__)
 
 
 class TranscriptionTask(Task):
     """Base task class with shared error handling."""
-    
+
     autoretry_for = (Exception,)
     retry_kwargs = {"max_retries": 5}
     retry_backoff = True
     retry_backoff_max = 600  # 10 minutes max
     retry_jitter = True
 
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """After retries are exhausted, surface a clear failure to the client."""
+        job_id = (kwargs or {}).get("job_id")
+        if not job_id and args and len(args) > 1:
+            job_id = args[1]
+        _mark_job_failed(job_id, f"transcription failed: {exc}")
+
 
 @app.task(bind=True, base=TranscriptionTask, name="src.tasks.transcription_tasks.transcribe_audio_bytes")
-def transcribe_audio_bytes(self, user_id: int, job_id: str, audio_bytes: bytes, mode: str = "recap"):
+def transcribe_audio_bytes(self, user_id: int, job_id: str, audio_bytes: bytes, mode: str = "recap", event_name: str = None):
     """Transcribe audio given raw bytes. Writes to a temp file on the worker.
 
     This allows the ingest controller to dispatch transcription immediately
@@ -60,13 +68,30 @@ def transcribe_audio_bytes(self, user_id: int, job_id: str, audio_bytes: bytes, 
 
         logger.info(f"[job_id={job_id}] Byte transcription complete: {extracted_interests[:100]}...")
 
-        # Update recordings row in Supabase with transcript JSON and mark completed
+        # Update recordings row in Supabase with transcript JSON and mark completed.
+        # Requires transcript_json, status, and contact_id columns on the Supabase
+        # recordings table. Run migrations/005_recordings_updates.sql in the
+        # Supabase SQL editor (this table lives in Supabase, not local Postgres).
         try:
             client = SupabaseManager.get_client()
             client.table("recordings").update({"transcript_json": transcript_data, "status": "completed"}).eq("job_id", job_id).eq("user_id", user_id).execute()
             logger.info(f"[job_id={job_id}] Updated recordings row with transcript_json")
         except Exception as e:
             logger.warning(f"[job_id={job_id}] Failed to update recordings row with transcript: {e}")
+
+        # Dispatch contact creation from the extracted transcript. This is the
+        # bridge that turns a transcribed recording into a Contact record.
+        create_contact_from_transcript.apply_async(
+            kwargs={
+                "user_id": user_id,
+                "job_id": job_id,
+                "transcript": extracted_interests,
+                "event_name": event_name,
+                "mode": mode,
+            },
+            countdown=1,  # slight delay to let the Supabase update settle
+        )
+        logger.info(f"[job_id={job_id}] Contact creation task dispatched")
 
         return {
             "user_id": user_id,
@@ -89,7 +114,7 @@ def transcribe_audio_bytes(self, user_id: int, job_id: str, audio_bytes: bytes, 
 
 
 @app.task(bind=True, base=TranscriptionTask, name="src.tasks.transcription_tasks.transcribe_audio")
-def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode: str = "recap"):
+def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode: str = "recap", event_name: str = None):
     """Transcribe audio using Deepgram with automatic retry on failure.
     
     Args:
@@ -118,7 +143,10 @@ def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode
 
         logger.info(f"[job_id={job_id}] Transcription complete: {extracted_interests[:100]}...")
 
-        # Update recordings row in Supabase with transcript JSON and mark completed
+        # Update recordings row in Supabase with transcript JSON and mark completed.
+        # Requires transcript_json, status, and contact_id columns on the Supabase
+        # recordings table. Run migrations/005_recordings_updates.sql in the
+        # Supabase SQL editor (this table lives in Supabase, not local Postgres).
         try:
             client = SupabaseManager.get_client()
             client.table("recordings").update({"transcript_json": transcript_data, "status": "completed"}).eq("job_id", job_id).eq("user_id", user_id).execute()
@@ -126,13 +154,27 @@ def transcribe_audio(self, user_id: int, job_id: str, audio_file_path: str, mode
         except Exception as e:
             logger.warning(f"[job_id={job_id}] Failed to update recordings row with transcript: {e}")
 
+        # Dispatch contact creation from the extracted transcript. This is the
+        # bridge that turns a transcribed recording into a Contact record.
+        create_contact_from_transcript.apply_async(
+            kwargs={
+                "user_id": user_id,
+                "job_id": job_id,
+                "transcript": extracted_interests,
+                "event_name": event_name,
+                "mode": mode,
+            },
+            countdown=1,  # slight delay to let the Supabase update settle
+        )
+        logger.info(f"[job_id={job_id}] Contact creation task dispatched")
+
         return {
             "user_id": user_id,
             "job_id": job_id,
             "extracted_interests": extracted_interests,
             "mode": mode,
         }
-        
+
     except Exception as e:
         logger.error(f"[job_id={job_id}] Transcription failed: {e}")
         self.update_state(

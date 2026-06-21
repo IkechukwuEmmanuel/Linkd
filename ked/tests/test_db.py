@@ -1,34 +1,51 @@
-import os
+"""Schema / DB-object tests against the configured database.
+
+Replaces the previous SQLite-based test, which could not work (the schema uses
+pgvector `vector` columns and PostgreSQL RLS). Skips gracefully if the configured
+database is not PostgreSQL.
+"""
+
 import pytest
 from sqlalchemy import text
 
-from ked.src import db
+from src import db
 
 
-def test_init_db_creates_tables(tmp_path, monkeypatch):
-    # Use a temporary SQLite database for schema creation
-    sqlite_url = f"sqlite:///{tmp_path / 'test.db'}"
-    monkeypatch.setenv("DATABASE_URL", sqlite_url)
-    # reload settings
-    from ked.src.config import settings
-    assert settings.database_url == sqlite_url
+def _is_postgres() -> bool:
+    return db.engine.url.get_backend_name().startswith("postgres")
 
-    # call init_db - should not raise
+
+def test_core_tables_exist():
     db.init_db()
-
-    # basic query to verify tables exist
     with db.engine.connect() as conn:
-        res = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()
-        names = {r[0] for r in res}
-        assert "users" in names
-        assert "user_persona" in names
-        assert "interest_nodes" in names
-        assert "conversations" in names
+        rows = conn.execute(
+            text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+            if _is_postgres()
+            else text("SELECT name FROM sqlite_master WHERE type='table'")
+        ).fetchall()
+    names = {r[0] for r in rows}
+    for t in ("users", "user_persona", "interest_nodes", "conversations", "contacts"):
+        assert t in names
 
 
-@pytest.mark.skip("RLS policies require PostgreSQL; run manually against a live DB")
-def test_rls_policies_exist():
-    # This test is a placeholder demonstrating how one might check the RLS policies.
+def test_similarity_function_created():
+    if not _is_postgres():
+        pytest.skip("similarity functions require PostgreSQL")
+    db.init_db()
     with db.engine.connect() as conn:
-        res = conn.execute(text("SELECT policyname FROM pg_policies WHERE tablename='user_persona';")).fetchall()
-        assert any("user_isolation" in r[0] for r in res)
+        rows = conn.execute(
+            text("SELECT proname FROM pg_proc WHERE proname='compute_top_synapses'")
+        ).fetchall()
+    assert rows, "compute_top_synapses function should exist after migrations"
+
+
+def test_rls_forced_on_contacts():
+    if not _is_postgres():
+        pytest.skip("RLS requires PostgreSQL")
+    db.init_db()
+    with db.engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname='contacts'")
+        ).first()
+    assert row is not None
+    assert row[0] is True and row[1] is True, "contacts must have RLS enabled and forced"

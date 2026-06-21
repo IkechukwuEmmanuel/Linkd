@@ -1,0 +1,7 @@
+# Development / test / CI: everything both processes need, plus test + migration
+# tooling. Install with:  pip install -r requirements-dev.txt
+-r requirements-api.txt
+-r requirements-worker.txt
+
+pytest==7.4.3
+alembic==1.13.0

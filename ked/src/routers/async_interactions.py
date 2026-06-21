@@ -18,7 +18,10 @@ from typing import Optional
 
 from .. import db
 from ..services import storage_service
-from ..workflows import start_interaction_workflow, get_workflow_status, cancel_workflow
+# NOTE: ..workflows imports the full Celery task graph (worker-only deps). It is
+# imported lazily inside the endpoints so the API process can run from
+# requirements-api.txt without those deps. The /v2 endpoints themselves require
+# the worker deps to be installed.
 from ..models import Job
 from ..auth import get_current_user
 from ..exceptions import ValidationError, ExternalServiceError
@@ -145,7 +148,8 @@ async def submit_interaction_async(
         db_session.commit()
         logger.info(f"[job_id={job_id}] Job record created")
         
-        # Start the distributed workflow
+        # Start the distributed workflow (worker-only deps imported lazily)
+        from ..workflows import start_interaction_workflow
         task_id = start_interaction_workflow(
             user_id=user_id,
             job_id=job_id,
@@ -183,7 +187,11 @@ async def submit_interaction_async(
 
 
 @router.get("/interactions/status/{job_id}", response_model=WorkflowStatusResponse)
-async def get_interaction_status(job_id: str, db_session: Session = Depends(get_db)):
+async def get_interaction_status(
+    job_id: str,
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
     """Poll the status of an async interaction workflow.
     
     Returns the current state and progress of the workflow:
@@ -213,15 +221,15 @@ async def get_interaction_status(job_id: str, db_session: Session = Depends(get_
     logger.info(f"Status check for job_id={job_id}")
     
     try:
-        # Get job record
+        # Get job record (scoped to the authenticated user)
         job = db_session.query(Job).filter(Job.job_id == job_id).first()
-        if not job:
+        if not job or job.user_id != user_id:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-        
+
         # Get Celery task ID
         metadata = json.loads(job.job_metadata or "{}")
         celery_task_id = metadata.get("celery_task_id")
-        
+
         if not celery_task_id:
             # Job not started yet
             return WorkflowStatusResponse(
@@ -232,8 +240,9 @@ async def get_interaction_status(job_id: str, db_session: Session = Depends(get_
             )
         
         # Get workflow status from Celery
+        from ..workflows import get_workflow_status
         workflow_status = get_workflow_status(celery_task_id)
-        
+
         return WorkflowStatusResponse(
             job_id=job_id,
             task_id=celery_task_id,
@@ -251,7 +260,11 @@ async def get_interaction_status(job_id: str, db_session: Session = Depends(get_
 
 
 @router.post("/interactions/cancel/{job_id}")
-async def cancel_interaction(job_id: str, db_session: Session = Depends(get_db)):
+async def cancel_interaction(
+    job_id: str,
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
     """Cancel a running interaction workflow.
     
     Args:
@@ -263,18 +276,19 @@ async def cancel_interaction(job_id: str, db_session: Session = Depends(get_db))
     logger.info(f"Cancelling job_id={job_id}")
     
     try:
-        # Get job record
+        # Get job record (scoped to the authenticated user)
         job = db_session.query(Job).filter(Job.job_id == job_id).first()
-        if not job:
+        if not job or job.user_id != user_id:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-        
+
         # Cancel Celery task
         metadata = json.loads(job.job_metadata or "{}")
         celery_task_id = metadata.get("celery_task_id")
         
         if celery_task_id:
+            from ..workflows import cancel_workflow
             cancel_workflow(celery_task_id)
-        
+
         # Update job status
         job.status = "CANCELLED"
         db_session.commit()
@@ -297,10 +311,10 @@ async def cancel_interaction(job_id: str, db_session: Session = Depends(get_db))
 
 @router.post("/interactions/submit-v2b")
 async def submit_interaction_v2b(
-    user_id: int,
     file: UploadFile,
     mode: str = Form("recap"),
     sources: str = Form(None),  # Comma-separated list of enabled sources
+    user_id: int = Depends(get_current_user),
     db_session: Session = Depends(get_db),
 ) -> dict:
     """Submit an interaction for Phase 2b asynchronous processing (multi-source).
@@ -441,7 +455,11 @@ class InteractionDetailResponse(BaseModel):
 
 
 @router.get("/interactions/detail/{job_id}", response_model=InteractionDetailResponse)
-async def get_interaction_detail(job_id: str, db_session: Session = Depends(get_db)):
+async def get_interaction_detail(
+    job_id: str,
+    user_id: int = Depends(get_current_user),
+    db_session: Session = Depends(get_db),
+):
     """Get detailed results for a Phase 2b interaction workflow.
     
     Returns comprehensive results including:
@@ -460,9 +478,9 @@ async def get_interaction_detail(job_id: str, db_session: Session = Depends(get_
     
     try:
         job = db_session.query(Job).filter(Job.job_id == job_id).first()
-        if not job:
+        if not job or job.user_id != user_id:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-        
+
         metadata = json.loads(job.job_metadata or "{}")
         celery_task_id = metadata.get("celery_task_id")
         workflow_version = metadata.get("workflow_version", "2a")
@@ -477,6 +495,7 @@ async def get_interaction_detail(job_id: str, db_session: Session = Depends(get_
             )
         
         # Get detailed workflow result from Celery
+        from ..workflows import get_workflow_status
         workflow_status = get_workflow_status(celery_task_id)
         result_data = workflow_status.get("meta", {})
         

@@ -8,40 +8,34 @@ abstract class AppException implements Exception {
 }
 
 class NetworkException extends AppException {
-  NetworkException([String message = 'Network error occurred'])
-      : super(message);
+  NetworkException([super.message = 'Network error occurred']);
 }
 
 class ServerException extends AppException {
   final int? statusCode;
 
   ServerException(
-    String message, {
+    super.message, {
     this.statusCode,
-  }) : super(message);
+  });
 }
 
 class CacheException extends AppException {
-  CacheException([String message = 'Cache error occurred'])
-      : super(message);
+  CacheException([super.message = 'Cache error occurred']);
 }
 
 class ValidationException extends AppException {
-  ValidationException([String message = 'Validation error occurred'])
-      : super(message);
+  ValidationException([super.message = 'Validation error occurred']);
 }
 
 class UnauthorizedException extends AppException {
-  UnauthorizedException([String message = 'Unauthorized access'])
-      : super(message);
+  UnauthorizedException([super.message = 'Unauthorized access']);
 }
 
 class TimeoutException extends AppException {
-  TimeoutException([String message = 'Request timeout'])
-      : super(message);
+  TimeoutException([super.message = 'Request timeout']);
 }
 
 class NotFoundException extends AppException {
-  NotFoundException([String message = 'Resource not found'])
-      : super(message);
+  NotFoundException([super.message = 'Resource not found']);
 }

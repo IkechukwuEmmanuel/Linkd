@@ -1,0 +1,29 @@
+# Celery worker image (transcription + enrichment + contact creation).
+#
+# Installs the worker + shared deps (requirements-worker.txt), including the
+# Playwright/Selenium scraper stack and the Chromium browser.
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# ffmpeg for audio decode; build deps for any source builds.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-common.txt requirements-worker.txt ./
+RUN pip install -r requirements-worker.txt
+
+# Chromium + its system libs for Playwright-based scrapers.
+RUN playwright install --with-deps chromium
+
+COPY . .
+
+# Consumes all three queues so contact creation (default) is never stranded.
+# For separate scaling, run one container per queue with -Q <queue>.
+CMD ["celery", "-A", "src.celery_app", "worker", \
+     "-Q", "transcription,enrichment,default", "--loglevel=info"]

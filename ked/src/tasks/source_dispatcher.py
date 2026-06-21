@@ -457,3 +457,23 @@ async def dispatch_source_queries(
     """
     dispatcher = SourceDispatcher()
     return await dispatcher.dispatch_to_sources(person_name, context, enabled_sources)
+
+
+# ---------------------------------------------------------------------------
+# Celery task wrapper
+#
+# The dispatch logic is async (concurrent source queries), but Celery tasks run
+# synchronously. We bridge with asyncio.run inside a registered task so the
+# workflow can dispatch it like any other task — resolving the previous
+# async/sync mismatch where these functions were never callable from a worker.
+# ---------------------------------------------------------------------------
+
+from ..celery_app import app  # noqa: E402  (after the async defs, by design)
+
+
+@app.task(name="src.tasks.source_dispatcher.dispatch_sources_task")
+def dispatch_sources_task(person_name, context=None, enabled_sources=None) -> Dict:
+    """Synchronous Celery entrypoint for multi-source enrichment."""
+    return asyncio.run(
+        dispatch_source_queries(person_name, context, enabled_sources)
+    )

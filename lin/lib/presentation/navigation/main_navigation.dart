@@ -42,23 +42,23 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
-            label: 'Home',
+            label: 'home',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.mic),
-            label: 'Record',
+            label: 'record',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.contacts),
-            label: 'Contacts',
+            label: 'contacts',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.bar_chart),
-            label: 'Metrics',
+            label: 'metrics',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),
-            label: 'Settings',
+            label: 'settings',
           ),
         ],
         currentIndex: _selectedIndex,

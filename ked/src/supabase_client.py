@@ -11,7 +11,7 @@ import logging
 from typing import Optional
 from supabase import create_client, Client
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from .config import settings
 from .exceptions import UnauthorizedError
@@ -66,7 +66,7 @@ def get_supabase_client() -> Client:
     return SupabaseManager.get_client()
 
 
-async def verify_supabase_token(credentials: HTTPAuthCredentials = Depends(security)) -> dict:
+async def verify_supabase_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Verify Supabase JWT token from Authorization header.
     
     This dependency validates that the request contains a valid Supabase

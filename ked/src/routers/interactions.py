@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
 from .. import db, models
-from ..services import deepgram_integration, overlap
+from ..services import overlap
+# deepgram_integration pulls worker-only deps (Deepgram SDK); this legacy
+# synchronous endpoint imports it lazily so it isn't required to start the API.
 from ..config import settings
 from ..auth import get_current_user
 from ..exceptions import ValidationError, ExternalServiceError
@@ -73,7 +75,8 @@ async def process_interaction_audio(
             tmp.write(content)
             tmp_path = tmp.name
 
-        # Process the audio
+        # Process the audio (Deepgram SDK imported lazily — worker-only dep)
+        from ..services import deepgram_integration
         extracted_interests = deepgram_integration.process_interaction_audio(tmp_path, mode=mode)
         logger.info(f"[user_id={user_id}] Extracted interests from {mode} mode: {extracted_interests[:100]}...")
 

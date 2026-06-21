@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field
 
 from .. import models, db
 from ..auth import get_current_user
-from ..tasks.contact_tasks import create_contact_from_transcript
+# Dispatch by task NAME (not by importing the task) to keep worker-only deps out
+# of the API process. See requirements-*.txt.
+from ..celery_app import app as celery_app
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/contacts", tags=["contacts"])
@@ -186,13 +188,19 @@ def quick_capture_contact(
 ):
     """Quick text-based contact capture (skip audio recording)."""
     try:
-        # Dispatch to contact creation task
-        create_contact_from_transcript.delay(
-            user_id=user_id,
-            job_id=f"quick-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-            transcript=f"{request.name}: {request.note}",
-            event_name=request.event_name,
-            mode="recap",
+        # Dispatch to contact creation task. Use apply_async(kwargs=...) so the
+        # full keyword signature (incl. event_date) is passed unambiguously.
+        celery_app.send_task(
+            "src.tasks.contact_tasks.create_contact_from_transcript",
+            kwargs={
+                "user_id": user_id,
+                "job_id": f"quick-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                "transcript": f"{request.name}: {request.note}",
+                "event_name": request.event_name,
+                "event_date": None,
+                "mode": "recap",
+            },
+            queue="default",
         )
 
         return {

@@ -1,4 +1,4 @@
-/// Domain entities for Linkd app
+// Domain entities for Linkd app
 
 class User {
   final int id;

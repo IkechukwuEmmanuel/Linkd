@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ked
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: linkd
+          POSTGRES_PASSWORD: linkd
+          POSTGRES_DB: linkd_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U linkd"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://linkd:linkd@localhost:5432/linkd_db
+      DEEPGRAM_API_KEY: test-key
+      GEMINI_API_KEY: test-key
+      JWT_SECRET_KEY: ci-secret-key
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      ENVIRONMENT: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          # dev pins everything (api + worker + pytest/alembic) for the test run.
+          pip install -r requirements-dev.txt
+      - name: Run tests
+        run: pytest
+      - name: Audit dependencies for known vulnerabilities
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt || true
+
+  flutter:
+    name: Flutter (analyze + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
