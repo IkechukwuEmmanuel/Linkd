@@ -16,6 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
 
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -37,8 +38,21 @@
             so the people who matter don't slip away.
           </p>
 
-          <!-- Hero waitlist form (email + qualifying question) -->
+          <!-- Hero waitlist form. First name is optional and drives the live
+               personalization of the card; email is the only required field. -->
           <form id="waitlist" class="signup" novalidate>
+            <div class="field">
+              <label for="fname">First name <span class="opt">(optional)</span></label>
+              <input
+                type="text"
+                id="fname"
+                name="fname"
+                autocomplete="given-name"
+                placeholder="what should we call you?"
+                maxlength="40"
+              />
+            </div>
+
             <div class="field">
               <label for="email">Email</label>
               <input
@@ -76,26 +90,35 @@
           </form>
         </div>
 
-        <!-- Signature element: a Linkd relationship card, built in HTML/CSS -->
-        <div class="hero-card-stage" aria-hidden="false">
+        <!-- Signature element: a Linkd relationship "kept note", built in HTML/CSS.
+             It personalizes live from the form (name + role) — see app.js. -->
+        <div class="hero-card-stage">
           <figure class="memory-card" id="memoryCard">
             <figcaption class="sr-only">
-              Example Linkd relationship card showing a kept note about a contact
-              and the shared ground between you.
+              An example Linkd note: a person you met, the shared ground between
+              you, and how strong the match is. It updates as you fill in the form.
             </figcaption>
-            <p class="card-meta">kept note · sf climate week</p>
-            <p class="card-name">Amara Osei</p>
-            <p class="card-sub">Co-founder, tidal carbon startup</p>
+            <span class="fold" aria-hidden="true"></span>
 
-            <div class="shared-ground">
-              <span class="sg-label">shared ground</span>
-              <div class="thread">
-                <span class="node">you</span>
-                <span class="thread-line" aria-hidden="true"></span>
-                <span class="node">amara</span>
-              </div>
-              <p class="sg-text">both backing early ocean-carbon teams</p>
+            <p class="card-meta" data-meta>kept note · sf climate week</p>
+            <p class="card-name" data-name>Amara Osei</p>
+            <p class="card-sub" data-descriptor>co-founder · tidal carbon startup</p>
+
+            <div class="thread">
+              <span class="node" data-you>you</span>
+              <span class="thread-line thread-dotted" data-thread aria-hidden="true"></span>
+              <span class="node" data-them>amara</span>
             </div>
+
+            <div class="match">
+              <span class="overlap" aria-hidden="true">
+                <span class="circ circ-you"></span>
+                <span class="circ circ-them"></span>
+              </span>
+              <span class="match-pct" data-pct>86%</span>
+            </div>
+
+            <p class="sg-text" data-ground>both backing early ocean-carbon teams</p>
           </figure>
         </div>
       </div>
@@ -173,7 +196,16 @@
 
   <footer class="footer">
     <div class="wrap">
-      <span class="wordmark">Linkd</span>
+      <span class="brand">
+        <!-- mark in cream + clay so it reads on the moss footer (dark-bg variant) -->
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <defs><clipPath id="lensFt"><circle cx="11.5" cy="16" r="8"/></clipPath></defs>
+          <circle cx="11.5" cy="16" r="8" fill="#F2EEE3"/>
+          <circle cx="20.5" cy="16" r="8" fill="#F2EEE3"/>
+          <circle cx="20.5" cy="16" r="8" fill="#B5694A" clip-path="url(#lensFt)"/>
+        </svg>
+        <span class="wordmark">Linkd</span>
+      </span>
       <span class="copyright">© <span id="year"></span> Linkd</span>
     </div>
   </footer>

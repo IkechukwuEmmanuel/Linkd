@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Linkd">
+  <!-- Linkd mark: two people as overlapping circles, the shared overlap (the
+       product's "shared ground") emphasized in clay. This is the app's actual
+       overlap-strength visual reduced to its simplest form. Moss on cream/light. -->
+  <defs>
+    <clipPath id="lens"><circle cx="11.5" cy="16" r="8"/></clipPath>
+  </defs>
+  <circle cx="11.5" cy="16" r="8" fill="#4A5D43"/>
+  <circle cx="20.5" cy="16" r="8" fill="#4A5D43"/>
+  <circle cx="20.5" cy="16" r="8" fill="#B5694A" clip-path="url(#lens)"/>
+</svg>

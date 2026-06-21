@@ -17,6 +17,15 @@
   --hairline: #DED8C8;  /* quiet dividers/borders */
   --muted: #6F6B5F;     /* secondary ink */
 
+  /* The hero "kept note" is warmer than the rest of the UI: soft paper,
+     soft ink-brown text, a quiet taupe thread (clay stays CTA-only). */
+  --paper: #FBF8EF;
+  --paper-ink: #4A4034;       /* soft brown ink — body on the card */
+  --paper-ink-strong: #38301F; /* the serif name */
+  --paper-muted: #938776;     /* quiet labels / descriptors */
+  --thread: #C0B49A;          /* the connection-thread line */
+  --moss-soft: #8FA07F;       /* the lighter "them" overlap circle */
+
   --serif: "Fraunces", Georgia, "Times New Roman", serif;
   --sans: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 
@@ -94,6 +103,7 @@ p:last-child { margin-bottom: 0; }
 .signup { margin-top: 32px; max-width: 440px; }
 .signup .field { margin-bottom: 16px; }
 .signup label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+.signup label .opt { color: #9b9587; font-weight: 400; }
 
 .signup input,
 .signup select {
@@ -149,68 +159,87 @@ p:last-child { margin-bottom: 0; }
 
 /* --------------------- hero signature: memory card -------------------- */
 
-.hero-card-stage {
-  display: flex;
-  justify-content: center;
-  /* drop-shadow (not box-shadow) so it follows the clipped folded silhouette;
-     box-shadow would be clipped away by the card's clip-path. */
-  filter: drop-shadow(0 16px 30px rgba(43, 42, 38, 0.26));
-}
+.hero-card-stage { display: flex; justify-content: center; }
 
 .memory-card {
   position: relative;
   width: min(360px, 100%);
   margin: 0;
-  background: var(--card);
-  border-radius: 2px;               /* deliberately near-square: "a kept note" */
-  padding: 24px 24px 26px;
-  /* clip the top-right corner so the fold reads as a real cut */
-  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+  background: var(--paper);
+  color: var(--paper-ink);
+  border-radius: 3px;
+  padding: 32px 32px 34px;
+  box-shadow: 0 1px 1px rgba(74, 64, 52, 0.04),
+              0 24px 48px -30px rgba(74, 64, 52, 0.55);
 }
-/* the folded triangle itself */
-.memory-card::after {
-  content: "";
+
+/* Soft folded corner — a gentle diagonal fold with a shadow gradient
+   (lighter at the outer tip, deeper at the crease), not a flat triangle. */
+.memory-card .fold {
   position: absolute;
   top: 0; right: 0;
-  border-width: 0 22px 22px 0;
-  border-style: solid;
-  border-color: transparent var(--fold) transparent transparent;
+  width: 32px; height: 32px;
+  clip-path: polygon(100% 0, 0 0, 100% 100%);      /* top-right triangle */
+  background: linear-gradient(45deg, #d3c9b0 0%, #e6dECB 55%, #f3eddf 100%);
+  border-top-right-radius: 3px;
+  box-shadow: -3px 3px 7px -2px rgba(74, 64, 52, 0.22);
 }
 
-.card-meta { font-size: 0.78rem; color: var(--muted); margin: 0 0 14px; letter-spacing: 0.02em; }
-.card-name { font-family: var(--serif); font-size: 1.5rem; color: var(--ink); margin: 0; line-height: 1.1; }
-.card-sub { font-size: 0.92rem; color: var(--muted); margin: 4px 0 0; }
+/* lowercase, quiet — no tracked uppercase UI label */
+.card-meta { font-size: 0.82rem; color: var(--paper-muted); margin: 0 0 22px; }
+.card-name { font-family: var(--serif); font-size: 1.55rem; color: var(--paper-ink-strong); margin: 0; line-height: 1.12; }
+.card-sub  { font-size: 0.95rem; color: var(--paper-muted); margin: 6px 0 0; }
 
-.shared-ground { margin-top: 22px; }
-.sg-label { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-
-.thread { display: flex; align-items: center; gap: 12px; margin: 10px 0 12px; }
+/* the "you ··· name" connection thread — italic serif + a single quiet line */
+.thread { display: flex; align-items: center; gap: 16px; margin: 28px 0 0; }
 .thread .node {
   font-family: var(--serif);
   font-style: italic;
-  font-size: 1rem;
-  color: var(--ink);
+  font-size: 1.12rem;
+  color: var(--paper-ink);
   white-space: nowrap;
 }
-/* the dotted "shared ground" line — the ONLY other clay element */
-.thread-line {
-  flex: 1;
-  height: 0;
-  border-top: 2px dotted var(--clay);
+.thread-line { flex: 1; height: 0; }
+.thread-dotted { border-top: 2px dotted var(--thread); }
+.thread-dashed { border-top: 2px dashed var(--thread); }
+.thread-solid  { border-top: 2px solid  var(--thread); }
+
+/* match strength: overlapping circles + a quiet trailing percentage
+   (the contact-list row visual, applied with restraint) */
+.match { display: flex; align-items: center; gap: 9px; margin: 18px 0 0; }
+.overlap { display: inline-flex; align-items: center; }
+.circ {
+  width: 15px; height: 15px; border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 2.5px var(--paper);   /* paper ring keeps the two legible where they overlap */
 }
-.sg-text { font-size: 0.95rem; color: var(--ink); margin: 0; }
+.circ-you  { background: var(--moss); }
+.circ-them { background: var(--moss-soft); margin-left: -6px; }
+.match-pct { font-size: 0.86rem; color: var(--paper-muted); }
+
+.sg-text { font-size: 1rem; color: var(--paper-ink); margin: 20px 0 0; line-height: 1.5; }
+
+/* live update: a brief, restrained fade when the role changes (name typing
+   updates instantly — no per-keystroke animation) */
+.card-name, .card-sub, .sg-text, .match, [data-them] {
+  transition: opacity 0.22s ease;
+}
+.memory-card.is-swapping .card-name,
+.memory-card.is-swapping .card-sub,
+.memory-card.is-swapping .sg-text,
+.memory-card.is-swapping .match,
+.memory-card.is-swapping [data-them] { opacity: 0.2; }
 
 /* entrance: a memory surfacing — rise + fade, then settle */
 @keyframes card-surface {
   from { opacity: 0; transform: translateY(16px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.memory-card {
-  opacity: 0;
-  animation: card-surface 760ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms forwards;
-}
+.memory-card { opacity: 0; animation: card-surface 760ms cubic-bezier(0.22, 0.61, 0.36, 1) 200ms forwards; }
+
 @media (prefers-reduced-motion: reduce) {
   .memory-card { opacity: 1; animation: none; }
+  .memory-card *, .memory-card.is-swapping * { transition: none; opacity: 1; }
 }
 
 /* ------------------------------ bands -------------------------------- */
@@ -271,6 +300,8 @@ p:last-child { margin-bottom: 0; }
 
 .footer { background: var(--moss-deep); color: rgba(242,238,227,0.8); padding: 28px 0; }
 .footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.brand-mark { width: 24px; height: 24px; display: block; }
 .wordmark { font-family: var(--serif); font-size: 1.2rem; color: var(--cream); }
 .copyright { font-size: 0.85rem; }
 
